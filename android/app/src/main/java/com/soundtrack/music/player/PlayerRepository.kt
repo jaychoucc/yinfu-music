@@ -11,6 +11,7 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import com.soundtrack.music.model.Song
+import com.soundtrack.music.source.NeteaseMusicSource
 import com.soundtrack.music.source.SourceResolver
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -129,16 +130,26 @@ class PlayerRepository private constructor(context: Context) {
 
         /** 单个音源解析超时 */
         private const val RESOLVE_TIMEOUT_MS = 15_000L
-        /** 跨源补搜的单源超时 */
-        private const val FALLBACK_PER_SOURCE_MS = 6_000L
+        /** 跨源补搜的单源超时：海外源(joox/apple)单源需要更多 */
+        private const val FALLBACK_PER_SOURCE_MS = 8_000L
         /**
          * 跨源补搜总预算。
          * 旧实现会顺序遍历全部 57 个音源（每个 15 秒超时），
          * 一旦主音源失败就要几十分钟才返回，用户只看到「点了没反应」。
+         * 链路更长（CN 主力 + joox + netease + apple）后这里上调到 24s。
          */
-        private const val FALLBACK_BUDGET_MS = 12_000L
-        /** 跨源补搜只走这几个主力音源，按可靠性排序 */
-        private val FALLBACK_SOURCES = listOf("migu", "kuwo", "qq", "kugou", "myfreemp3", "netease")
+        private const val FALLBACK_BUDGET_MS = 24_000L
+        /**
+         * 跨源补搜音源列表，按可靠性 + 地理覆盖排序：
+         *  CN 主力（migu/kuwo/qq/kugou/myfreemp3）+ HK/SEA 兜底（joox）
+         *  + netease（兜底，可能 30s 片段会被守护拒）+ iTunes + amp-api（apple, 全球目录）
+         */
+        private val FALLBACK_SOURCES = listOf(
+            "migu", "kuwo", "qq", "kugou", "myfreemp3",
+            "joox",
+            "netease",
+            "apple",
+        )
     }
 
     fun play(list: List<Song>, startIndex: Int) {
@@ -263,12 +274,26 @@ class PlayerRepository private constructor(context: Context) {
             val perSource = (deadline - now).coerceAtMost(FALLBACK_PER_SOURCE_MS)
             val foundSong = runCatching {
                 withTimeoutOrNull(perSource) {
-                    src.search("${song.title} ${song.artist}", 5)
-                        .firstOrNull { it.title.equals(song.title, ignoreCase = true) && it.hasPlayUrl }
+                    val matches = src.search("${song.title} ${song.artist}", 5)
+                        .filter { it.title.equals(song.title, ignoreCase = true) }
+                    if (matches.isEmpty()) return@withTimeoutOrNull null
+                    val first = matches.first()
+                    // 关键：search 返回的 Song.playUrl 通常是空（URL 由 resolvePlayUrl 单独拿），
+                    // 不能用 it.hasPlayUrl 过滤 —— 那样 fallback 会 100% 返回 null。
+                    val url = src.resolvePlayUrl(first)
+                    if (!url.isNullOrBlank() && url.startsWith("http")) {
+                        first.playUrl = url
+                        first
+                    } else null
                 }
             }.getOrNull()
             val found = foundSong?.playUrl
             if (!found.isNullOrBlank() && found.startsWith("http")) {
+                // C 方案守护（扩展到 fallback）：若这条命中是 netease 的 30s 试听片段，
+                // 跳过这条 song，继续找下一源。不破坏上一轮已交付的「主源不走 netease 给 fee∈{1,4}」语义。
+                if (foundSong.source == "netease" && NeteaseMusicSource().isLikelyPreview(found)) {
+                    continue
+                }
                 song.playUrl = found
                 // 补搜命中的歌往往带更完整的元数据，顺手富化回来
                 if (foundSong.ext.isNotBlank()) song.ext = foundSong.ext

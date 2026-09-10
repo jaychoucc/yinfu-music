@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - 首页「推荐歌单 / 新歌速递 / 排行榜详情」歌曲仍播 30s 提前结束（C 方案：网易 `tracks[].fee` 字段 → metadata 级主音源路由；fee∈{1,4} 即 VIP/专辑独占，主音源从 `netease` 改为 `migu`，海糖网退到兜底链；fee∈{0,8} 或缺失仍走 `netease`，100% 向后兼容；`NeteaseMusicSource.isLikelyPreview` 试听探测保留为二道防线；实证：60 首真实推荐歌单曲目中 fee=1 (VIP) 占 19/60，全部命中 migu 接管，fee=0/8 合计 41/60 仍走 netease，A 方案 600 阈值的盲区彻底关闭）
+- 部分歌曲（典型如港台/粤语艺人「混账-周柏豪」）点歌后"无法解析"提前结束（fallback 过滤 bug + 跨源回退链路扩展）：
+  - **根因**：`PlayerRepository.resolvePlayableUrl` 回退循环用 `&& it.hasPlayUrl` 过滤，但所有 7 个 `MusicSource.search()` 返回的 Song `playUrl` 都是空（URL 后续 `resolvePlayUrl` 才填），导致 fallback 100% 哑炮
+  - **修复**：过滤改为 `search → 真正调 src.resolvePlayUrl(matchedSong) 拿 URL` 两步式
+  - **C 方案守护扩展**：fallback 命中 netease URL 时复用 `NeteaseMusicSource.isLikelyPreview`（已改 `internal`）判定 30s 试听，`continue` 跳过，避免破坏上一轮已交付的 fee∈{1,4} 不走 netease 语义
+  - **跨源补搜链路扩展**：`FALLBACK_SOURCES` 加 `joox`（HK/TW/SEA 兜底）+ `apple`（iTunes 公开 search + amp-api edge 全球目录）；单源超时 `6s→8s`、总预算 `12s→24s`
+  - **实证**：QA `qa/fallback_trace.py` 6 个场景全 PASS；iTunes Search API 实测"混账 周柏豪"命中 1 条；Joox Search 实测返回 30 条；C 方案 60 首曲目路由无回归（fee=1→migu 19/19、fee=0/8→netease 全保持）
 
 ## [2.0.0] - 2026-09-10
 

@@ -96,8 +96,11 @@ class NeteaseMusicSource : MusicSource {
      * 试听片段探测：拉取前 256KB 并统计 MPEG audio sync word（0xFF + 次字节 111xxxxx）密度。
      * MPEG1 L3@128kbps 每帧 144B：9.7s 试听 ≈ 420 帧，256KB 完整切片 ≈ 1780 帧，
      * 阈值 600 帧（≈5.3s 真音频）可稳定区分；任何异常一律保守判为试听，宁可走跨源回退。
+     *
+     * 暴露为 internal 让 PlayerRepository 的 fallback 能在拿到 netease URL 后复用同一份判定，
+     * 避免同一首歌被上游当作「可播」但落到 ExoPlayer 后 9 秒自动 STATE_ENDED。
      */
-    private suspend fun isLikelyPreview(downloadUrl: String): Boolean = withContext(Dispatchers.IO) {
+    internal suspend fun isLikelyPreview(downloadUrl: String): Boolean = withContext(Dispatchers.IO) {
         try {
             withTimeoutOrNull(2_500L) {
                 val req = Request.Builder()
