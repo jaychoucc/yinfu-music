@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-page-node-id="A6wZc8F4Ao7SznXJx3AFXv">
+<head data-page-node-id="vUmde7rqaeZzoN0aUGdJJm">
+  <meta charset="UTF-8" data-page-node-id="hpQ8Q49SzjNAEXAeLB3l7v" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" data-page-node-id="P0WEfvrMUxwDZOmxE3ia65" />
+  <title>音符 Note · powered by musicdl</title>
+  <link rel="stylesheet" href="/static/style.css" data-page-node-id="1HxvbdRa8jQ59Das7OgRzo" />
+</head>
+<body data-page-node-id="R9TictbRu1aMl5dSdDH67K">
+  <div class="app" id="app" data-page-node-id="Shs3SUMVMfzNaZzxX6NDGq">
+    <header class="topbar" data-page-node-id="PEajBxrnZM9wMsqma18DWo">
+      <div class="logo" data-page-node-id="3TPcjiNVd7t4LhG43I2VoR">
+        <svg class="logo-icon" viewBox="0 0 24 24" aria-hidden="true" data-page-node-id="prdIuojoFRTISxFSIe7JJB">
+          <defs>
+            <linearGradient id="noteGrad" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stop-color="#f5488b"/>
+              <stop offset="0.55" stop-color="#ff8a5c"/>
+              <stop offset="1" stop-color="#2edfa3"/>
+            </linearGradient>
+          </defs>
+          <path fill="url(#noteGrad)" d="M12,3v10.55c-0.59,-0.34 -1.27,-0.55 -2,-0.55 -2.21,0 -4,1.79 -4,4s1.79,4 4,4 4,-1.79 4,-4V7h4V3h-6z"/>
+        </svg>
+        <div class="logo-text" data-page-node-id="8jYnijrbiznD5DDHAHtfKj">
+          <div class="logo-title" data-page-node-id="30zSEwITMXgNXluDH5nHls">音符</div>
+          <div class="logo-sub" data-page-node-id="42ADBj0CjLhtSaJEmNjgSA">Note · powered by musicdl</div>
+        </div>
+      </div>
+      <div class="search-box" data-page-node-id="f03NMhDorZTZ8uVlCDxSrY">
+        <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" data-page-node-id="XZ6CYmn8NnuoNZYG2gmvGt">
+          <circle cx="11" cy="11" r="8" data-page-node-id="Kf8qAEXFhY479eBP8RJ2Dq"></circle>
+          <path d="M21 21l-4.35-4.35" data-page-node-id="JtcZ6ElXjH5el4HzIvQPzG"></path>
+        </svg>
+        <input type="text" id="searchInput" placeholder="搜索歌曲 / 歌手" autocomplete="off" data-page-node-id="mloNAKHklqdLRH0jzxzl8j" />
+        <div class="search-history" id="searchHistory" data-page-node-id="Ct7wGOf6Pd8oLWGmMppBA1"></div>
+      </div>
+    </header>
+
+    <nav class="source-bar" id="sourceBar" data-page-node-id="HFdjlETqVBjJGTOJJjmt6Z"></nav>
+
+    <main class="main" data-page-node-id="uEzNBORYC6q59DE6zSuUaf">
+      <section class="results-section" id="resultsSection" data-page-node-id="4UnOXs4fRfkkB0vDY67Yld">
+        <div class="results-header" data-page-node-id="lBuMBUPITy8qRpHRgQwnqB">
+          <span data-page-node-id="pLoTmcyhXr5BKq4Zdffi8q">曲目</span>
+          <span class="col-album" data-page-node-id="K9cZ1Klpxf261qGFEs0RyQ">专辑</span>
+          <span class="col-duration" data-page-node-id="vOoDgVRBobKRLpd5qgaGWE">时长</span>
+        </div>
+        <div class="results-list" id="resultsList" data-page-node-id="khaukFiNvmH5AlDwuxUBpE"></div>
+        <div class="empty-state" id="emptyState" data-page-node-id="nM2Oc2J9oZl502E8f1X7dV">输入关键词开始搜索</div>
+      </section>
+
+      <aside class="lyric-drawer" id="lyricDrawer" data-page-node-id="JbGaTOl3xh7xfphW4mt87R">
+        <div class="lyric-header" data-page-node-id="nQEDlOLovbK5rzVu3n9bE2">
+          <span data-page-node-id="dt93RjVnpTnwx0CaNsDMm5">歌词</span>
+          <button class="lyric-close" id="lyricClose" title="关闭" data-page-node-id="RGxrsOfqDPwPlquDmPQfn5">×</button>
+        </div>
+        <div class="lyric-body" id="lyricBody" data-page-node-id="gVysWUBHWH9SgOXjEA6BXw">
+          <div class="lyric-empty" data-page-node-id="Ni6S8wThx5yI0wi7twBrrk">暂无歌词</div>
+        </div>
+      </aside>
+    </main>
+
+    <footer class="playerbar" id="playerbar" data-page-node-id="kYoCMkQckwMVxPZPf5Y87H">
+      <div class="player-track" data-page-node-id="usWSfAoTnXdhJkpEvnqB6B">
+        <img class="player-cover" id="playerCover" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" alt="" data-page-node-id="ihmRxPEBIkqyzYfI63DVzb" />
+        <div class="player-meta" data-page-node-id="gFc2ETE1fSTwVU5QGYcePo">
+          <div class="player-title" id="playerTitle" data-page-node-id="T0KuqBmC0DFrmO5eUqERPm">未在播放</div>
+          <div class="player-artist" id="playerArtist" data-page-node-id="6gKbU9zQmzXzJETvlEsrC9">—</div>
+        </div>
+        <button class="player-lyric-btn" id="playerLyricBtn" title="歌词" data-page-node-id="RBGToQtxLAstoXNbGQWmnu">词</button>
+      </div>
+
+      <div class="player-controls" data-page-node-id="WxkpnpnHTJUQkZwJKhO3N5">
+        <div class="control-buttons" data-page-node-id="W64gbqEQQUtF32DCzSXjcG">
+          <button class="ctrl-btn" id="btnPrev" title="上一首" data-page-node-id="5p3DOQs1BscBV4AmCqrpdG">⏮</button>
+          <button class="ctrl-btn play-btn" id="btnPlay" title="播放/暂停" data-page-node-id="oC75FBKjKHFbg33fMCMDxk">▶</button>
+          <button class="ctrl-btn" id="btnNext" title="下一首" data-page-node-id="55d6xkrXRHOsdzEiGKH41F">⏭</button>
+        </div>
+        <div class="progress-area" data-page-node-id="LrhBYOyvkynVWNDCGHH4ZK">
+          <span class="time current" id="timeCurrent" data-page-node-id="dVECrVk5NqyvuxaRG4LMhG">0:00</span>
+          <div class="progress-wrap" id="progressWrap" data-page-node-id="zQ4DDxsAMv2uFMpaSyI7CT">
+            <div class="progress-bg" data-page-node-id="piiitOjoexjq4yxWPzvVEU"></div>
+            <div class="progress-fill" id="progressFill" data-page-node-id="foAH5EwZFHMvO5M54n0Q2A"></div>
+            <div class="progress-thumb" id="progressThumb" data-page-node-id="xZdOsmmBgAYaBBAuNBvGw8"></div>
+          </div>
+          <span class="time total" id="timeTotal" data-page-node-id="1JFxsQLbumoSJsS9mgeC35">0:00</span>
+        </div>
+      </div>
+
+      <div class="player-extra" data-page-node-id="CbGUxvIIwDSgrQBVzxEfUu">
+        <div class="wave" id="wave" data-page-node-id="U5VVv7xBf8IprZKaj3k4gi">
+          <span data-page-node-id="viUGGbL5xO1mbz9489sbVp"></span><span data-page-node-id="gs8Pxwx1oRhHL283P46Ena"></span><span data-page-node-id="ABBhpTxyujxAMcDNIUQumc"></span><span data-page-node-id="IXIzWH5N6fPbeJHJVEBWFP"></span><span data-page-node-id="vvoCsh46GWVWg6Pb3AEUij"></span>
+          <span data-page-node-id="EaxOhLXs7gEfCpLBXHaXsE"></span><span data-page-node-id="IkO5NUorNDwwy54s4c4ZHW"></span><span data-page-node-id="FRYCjJFpM7KKNvzFHUGjUf"></span><span data-page-node-id="tI6ETD0y5Wia6DwYwEbGL4"></span><span data-page-node-id="rZVgEDFqAxxxWRz3xj8DLK"></span>
+        </div>
+        <div class="volume-wrap" title="音量" data-page-node-id="IZAw55FWzGYAAQzXUFhF1x">
+          <svg viewBox="0 0 24 24" fill="currentColor" data-page-node-id="iH0lC8HTWXiJrrtxWcBvfI"><path d="M3 10v4h4l5 5V5L7 10H3zm13 0a4 4 0 010 4v-4z" data-page-node-id="2sBpiXGL58QQFkYb1r6CKv"/></svg>
+          <div class="volume-slider" id="volumeSlider" data-page-node-id="Kv6DFpDaynPP6T7UvnQDk3">
+            <div class="volume-fill" id="volumeFill" data-page-node-id="pkpIc16CRlEhEtQFnsmW0c"></div>
+          </div>
+        </div>
+      </div>
+    </footer>
+
+    <audio id="audio" crossorigin="anonymous" data-page-node-id="docT7LkjsincKkKuhGihXd"></audio>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

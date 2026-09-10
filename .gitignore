@@ -9,10 +9,11 @@ android/.idea/
 # ---------- 本地构建工具链 (用户应自行安装) ----------
 build-tools/
 
-# ---------- 已废弃的旧实现 ----------
-web/
-ref/
-musicdl_outputs/
+# ---------- 电脑端运行期产物 (不入仓) ----------
+web/musicdl_outputs/
+web/downloads/
+web/probe_results.json
+/musicdl_outputs/
 
 # ---------- Agent / 临时 / 测试残文件 ----------
 .workbuddy/
@@ -22,6 +23,13 @@ listing.html
 lrc.txt
 seg.mp3
 sse4.txt
+
+# ---------- Python 编译/缓存 ----------
+__pycache__/
+*.pyc
+*.pyo
+ref_all/.venv/
+web/.venv/
 
 # ---------- 编译产物 ----------
 *.apk
