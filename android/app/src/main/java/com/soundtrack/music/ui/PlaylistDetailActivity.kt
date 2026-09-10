@@ -33,6 +33,8 @@ class PlaylistDetailActivity : AppCompatActivity() {
 
     private lateinit var loader: MiniImageLoader
     private lateinit var songAdapter: SongAdapter
+    /** 底部迷你播放器：从列表点歌进入播放页后返回，仍能从这里回到播放页 */
+    private lateinit var miniPlayer: MiniPlayerController
 
     private var playlistId: Long = 0L
     private var playlistName: String = ""
@@ -42,6 +44,10 @@ class PlaylistDetailActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_playlist_detail)
         loader = MiniImageLoader(this)
+
+        // 必须放在下面「无效的歌单 id」提前 return 之前，否则异常分支没有迷你条
+        miniPlayer = MiniPlayerController(this, findViewById(R.id.mini_player))
+        miniPlayer.bind()
 
         playlistId = intent.getLongExtra("playlist_id", 0L)
         playlistName = intent.getStringExtra("playlist_name").orEmpty()

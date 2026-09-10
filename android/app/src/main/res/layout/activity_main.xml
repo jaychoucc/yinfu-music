@@ -12,6 +12,16 @@
         android:layout_height="0dp"
         android:layout_weight="1" />
 
+    <!-- 迷你播放器：常驻在底部导航上方，有歌才显示。
+         高度必须显式写 66dp：include 上的 layout_* 会覆盖被 include 根节点的 layout params，
+         写 wrap_content 会让根 FrameLayout 按最大子 view（内容区 64dp）测量，
+         把底部 2dp 的 mini_progress 挤出去看不见。 -->
+    <include
+        android:id="@+id/mini_player"
+        layout="@layout/layout_mini_player"
+        android:layout_width="match_parent"
+        android:layout_height="66dp" />
+
     <com.google.android.material.bottomnavigation.BottomNavigationView
         android:id="@+id/bottom_nav"
         android:layout_width="match_parent"

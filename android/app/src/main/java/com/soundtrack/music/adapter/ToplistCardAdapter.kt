@@ -40,9 +40,18 @@ class ToplistCardAdapter(
     inner class VH(v: View) : RecyclerView.ViewHolder(v) {
         private val cover: ImageView = v.findViewById(R.id.top_cover)
         private val name: TextView = v.findViewById(R.id.top_name)
+        private val preview: TextView = v.findViewById(R.id.top_preview)
 
         fun bind(card: ToplistCard) {
             name.text = card.name
+            // 榜单预览：接口只给歌名+歌手（无 id），展示为多行文本
+            val pv = card.previews
+            if (pv.isEmpty()) {
+                preview.visibility = View.GONE
+            } else {
+                preview.visibility = View.VISIBLE
+                preview.text = pv.joinToString("\n")
+            }
             loader.load(card.coverUrl, cover)
             itemView.setOnClickListener { onClick(card) }
         }

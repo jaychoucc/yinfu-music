@@ -41,11 +41,36 @@ class MiniImageLoader(context: Context) {
         }
     }
 
+    /**
+     * 同步取 bitmap。内部用 runBlocking，**会阻塞调用线程**，
+     * 只能在后台线程调用；UI 线程请改用 loadBitmapAsync()。
+     */
     fun loadBitmap(url: String): Bitmap? {
         if (url.isBlank()) return null
         val key = md5(url)
         memCache.get(key)?.let { return it }
         return runBlocking(Dispatchers.IO) { loadBitmap(key, url) }
+    }
+
+    /**
+     * 异步取 bitmap，回调切回主线程。
+     * 播放页切歌时会同步触发封面 + 模糊背景两次取图，
+     * 用同步版会把主线程卡在 runBlocking 上（网络 + 解码），表现为切歌卡顿/ANR。
+     */
+    fun loadBitmapAsync(url: String, onReady: (Bitmap?) -> Unit) {
+        if (url.isBlank()) {
+            onReady(null)
+            return
+        }
+        val key = md5(url)
+        memCache.get(key)?.let {
+            onReady(it)
+            return
+        }
+        scope.launch {
+            val bmp = loadBitmap(key, url)
+            withContext(Dispatchers.Main) { onReady(bmp) }
+        }
     }
 
     private fun loadBitmap(key: String, url: String): Bitmap? {

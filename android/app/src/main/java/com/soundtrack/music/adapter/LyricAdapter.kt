@@ -16,14 +16,26 @@ class LyricAdapter : RecyclerView.Adapter<LyricAdapter.VH>() {
     fun setData(data: List<LrcParser.Line>) {
         lines.clear()
         lines.addAll(data)
+        // 必须复位高亮下标：切歌后旧的下标会跨列表生效，
+        // 导致新歌一进来就高亮在错误的行上（甚至越界）。
+        activeIndex = -1
         notifyDataSetChanged()
     }
 
+    /**
+     * 高亮某一行。
+     *
+     * ⚠️ 旧实现无条件 `notifyItemChanged(old)`，而 activeIndex 初始为 -1，
+     * 播放页每 300ms 就会带着 -1 调一次，RecyclerView 会抛 IndexOutOfBoundsException
+     * （"Invalid view holder adapter position"）导致播放过程中闪退。
+     * 这里同时做了位置合法性与"无变化则跳过"的兜底。
+     */
     fun setActive(index: Int) {
+        if (index == activeIndex) return
         val old = activeIndex
         activeIndex = index
-        notifyItemChanged(old)
-        notifyItemChanged(activeIndex)
+        if (old in lines.indices) notifyItemChanged(old)
+        if (index in lines.indices) notifyItemChanged(index)
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH {

@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <androidx.core.widget.NestedScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@color/bg"
@@ -24,14 +25,74 @@
             android:textStyle="bold"
             android:layout_marginBottom="16dp" />
 
-        <ImageView
+        <!-- 发现好音乐 / 推荐歌单头条：LinearLayout 容纳封面 + 标题 + 副标题 -->
+        <LinearLayout
             android:id="@+id/banner"
             android:layout_width="match_parent"
-            android:layout_height="160dp"
-            android:scaleType="centerCrop"
-            android:src="@drawable/bg_gradient_accent"
-            android:background="@drawable/bg_gradient_accent"
-            android:clipToOutline="true" />
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <FrameLayout
+                android:layout_width="match_parent"
+                android:layout_height="160dp"
+                android:background="@drawable/bg_gradient_accent"
+                android:clipToOutline="true">
+
+                <ImageView
+                    android:id="@+id/banner_cover"
+                    android:layout_width="match_parent"
+                    android:layout_height="160dp"
+                    android:scaleType="centerCrop"
+                    android:clipToOutline="true"
+                    android:contentDescription="@null" />
+
+                <TextView
+                    android:id="@+id/banner_badge"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="top|end"
+                    android:layout_margin="12dp"
+                    android:background="@drawable/bg_banner_badge"
+                    android:paddingStart="10dp"
+                    android:paddingEnd="10dp"
+                    android:paddingTop="4dp"
+                    android:paddingBottom="4dp"
+                    android:text="每日推荐"
+                    android:textColor="@color/text"
+                    android:textSize="11sp" />
+
+                <TextView
+                    android:id="@+id/banner_title"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="bottom|start"
+                    android:layout_marginStart="16dp"
+                    android:layout_marginEnd="16dp"
+                    android:layout_marginBottom="14dp"
+                    android:ellipsize="end"
+                    android:maxLines="2"
+                    android:shadowColor="#80000000"
+                    android:shadowDx="0"
+                    android:shadowDy="1"
+                    android:shadowRadius="4"
+                    android:textColor="@color/text"
+                    android:textSize="18sp"
+                    android:textStyle="bold"
+                    tools:text="推荐歌单标题占位" />
+            </FrameLayout>
+
+            <TextView
+                android:id="@+id/banner_sub"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:ellipsize="end"
+                android:gravity="center"
+                android:maxLines="2"
+                android:textColor="@color/text_2"
+                android:textSize="13sp"
+                tools:text="推荐副标题占位文案" />
+        </LinearLayout>
 
         <!-- 推荐歌单 section header -->
         <LinearLayout

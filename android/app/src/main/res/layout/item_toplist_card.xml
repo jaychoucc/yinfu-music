@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="220dp"
-    android:layout_height="240dp"
+    android:layout_height="292dp"
     android:orientation="vertical"
     android:paddingEnd="12dp"
     android:background="?attr/selectableItemBackground">
@@ -25,4 +25,17 @@
         android:textStyle="bold"
         android:textColor="@color/text"
         android:text="排行榜" />
+
+    <!-- 榜单前 3 首文字预览（接口只给 {歌名, 歌手}，无 id，不可直接播放） -->
+    <TextView
+        android:id="@+id/top_preview"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:maxLines="3"
+        android:ellipsize="end"
+        android:lineSpacingExtra="1dp"
+        android:textSize="10sp"
+        android:textColor="@color/text_2"
+        android:text="" />
 </LinearLayout>

@@ -12,9 +12,15 @@ import com.soundtrack.music.R
 
 class MainActivity : AppCompatActivity() {
 
+    /** 底部迷你播放器：退出播放页后仍能从这里回到播放页 */
+    private lateinit var miniPlayer: MiniPlayerController
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+
+        miniPlayer = MiniPlayerController(this, findViewById(R.id.mini_player))
+        miniPlayer.bind()
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {

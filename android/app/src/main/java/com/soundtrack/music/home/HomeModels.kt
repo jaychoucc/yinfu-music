@@ -3,7 +3,7 @@ package com.soundtrack.music.home
 import com.soundtrack.music.model.Song
 
 /**
- * 首页"推荐歌单"卡片。NetEase `/api/personalized` 的字段直接映射。
+ * 首页"推荐歌单"卡片。NetEase `/api/personalized/playlist` 的 result[] 直接映射。
  */
 data class PlaylistCard(
     val id: Long,
@@ -14,13 +14,17 @@ data class PlaylistCard(
 )
 
 /**
- * 首页"排行榜"卡片：封面 + 前 3-10 首预览歌曲。点开进详情页看全部。
+ * 首页"排行榜"卡片：封面 + 名称 + 前 3 首文字预览。
+ *
+ * 注意：/api/toplist/detail 返回的 tracks 是 `{first: 歌名, second: 歌手}` 简版结构，
+ * **没有歌曲 id**，无法构造可播放的 Song。所以这里存展示用的文本预览，
+ * 完整可播曲目在点进详情页时再用 playlistDetail 拉取。
  */
 data class ToplistCard(
     val id: Long,
     val name: String,
     val coverUrl: String,
-    val topSongs: List<Song>
+    val previews: List<String> = emptyList()
 )
 
 /**

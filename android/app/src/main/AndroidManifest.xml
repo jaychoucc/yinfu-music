@@ -29,9 +29,11 @@
             </intent-filter>
         </activity>
 
+        <!-- singleTop：从底部迷你条反复点击时复用同一个播放页，不堆叠多个实例 -->
         <activity
             android:name=".ui.PlayerActivity"
             android:exported="false"
+            android:launchMode="singleTop"
             android:screenOrientation="portrait" />
 
         <activity

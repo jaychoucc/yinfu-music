@@ -71,7 +71,7 @@ class NeteaseMusicSource : MusicSource {
         )
     }
 
-    private fun resolveUrl(songId: String): AudioLinkTester.Result? {
+    private suspend fun resolveUrl(songId: String): AudioLinkTester.Result? {
         val qualities = listOf("lossless", "exhigh", "standard")
         for (q in qualities) {
             try {
@@ -82,11 +82,61 @@ class NeteaseMusicSource : MusicSource {
                 val resp = Net.client().newCall(req).execute()
                 val json = JSONObject(resp.body?.string() ?: "{}")
                 val downloadUrl = json.optJSONObject("data")?.optString("url") ?: continue
+                // 试听探测：third-party 解析链对多数歌只返回 9~30s 试听片段，
+                // 命中则跳过该 quality，避免试听流到 ExoPlayer（9 秒自动 STATE_ENDED）。
+                if (isLikelyPreview(downloadUrl)) continue
                 AudioLinkTester.test(downloadUrl)?.let { return it }
             } catch (_: Exception) {
             }
         }
         return null
+    }
+
+    /**
+     * 试听片段探测：拉取前 256KB 并统计 MPEG audio sync word（0xFF + 次字节 111xxxxx）密度。
+     * MPEG1 L3@128kbps 每帧 144B：9.7s 试听 ≈ 420 帧，256KB 完整切片 ≈ 1780 帧，
+     * 阈值 600 帧（≈5.3s 真音频）可稳定区分；任何异常一律保守判为试听，宁可走跨源回退。
+     */
+    private suspend fun isLikelyPreview(downloadUrl: String): Boolean = withContext(Dispatchers.IO) {
+        try {
+            withTimeoutOrNull(2_500L) {
+                val req = Request.Builder()
+                    .url(downloadUrl)
+                    .header("Range", "bytes=0-262143")
+                    .header("User-Agent", "Mozilla/5.0")
+                    .build()
+                val bytes = Net.client().newCall(req).execute().use { resp ->
+                    val body = resp.body ?: return@use null
+                    val buf = ByteArray(262_144)
+                    var off = 0
+                    body.byteStream().use { ins ->
+                        while (off < buf.size) {
+                            val n = ins.read(buf, off, buf.size - off)
+                            if (n <= 0) break
+                            off += n
+                        }
+                    }
+                    if (off == buf.size) buf else buf.copyOf(off)
+                } ?: return@withTimeoutOrNull true
+
+                var syncCount = 0
+                var i = 0
+                val limit = bytes.size - 1
+                while (i < limit) {
+                    if ((bytes[i].toInt() and 0xFF) == 0xFF &&
+                        (bytes[i + 1].toInt() and 0xE0) == 0xE0
+                    ) {
+                        syncCount++
+                        i += 2
+                    } else {
+                        i++
+                    }
+                }
+                bytes.size < 65_536 || syncCount < 600
+            } ?: true
+        } catch (_: Exception) {
+            true
+        }
     }
 
     private fun fetchLyric(songId: String): String? {

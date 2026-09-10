@@ -1,9 +1,9 @@
-# 双端音乐应用 PRD — 声轨 Soundtrack
+# 双端音乐应用 PRD — 音符 Note
 
 > 任务编号：software-musicdl-dual
 > 作者：产品经理 许清楚
 > 基准：开源项目 [CharlesPikachu/musicdl](https://github.com/CharlesPikachu/musicdl) + 参考实现 `app.py`（Flask 后端 + SSE 流式搜索代理）
-> 截图参考：`.tmp/screenshot.png`（暗色主题「声轨 Soundtrack」网页端）
+> 截图参考：`.tmp/screenshot.png`（暗色主题「音符 Note」网页端）
 > 安卓端风格参考：网易云音乐 / QQ 音乐
 
 ---
@@ -46,7 +46,7 @@
 
 | 优先级 | 编号 | 需求 |
 |---|---|---|
-| **P0** | W-01 | 暗色主题 UI（声轨 Soundtrack 风格），顶部音源 Tab（咪咕/网易云/酷我/QQ）、中间结果列表、底部播放控制条、右侧歌词面板。 |
+| **P0** | W-01 | 暗色主题 UI（音符 Note 风格），顶部音源 Tab（咪咕/网易云/酷我/QQ）、中间结果列表、底部播放控制条、右侧歌词面板。 |
 | **P0** | W-02 | 后端 Flask 暴露 `/api/sources` `/api/search` (SSE) `/api/stream/<token>` `/api/cover/<token>` `/api/lyric/<token>` `/api/download` `/api/download/<id>/progress` `/api/file/<id>`，前端与 `app.py` 行为一致。 |
 | **P0** | W-03 | 搜索支持多源并发、流式逐条追加结果，单源 35 秒超时兜底（不阻塞其他源）。 |
 | **P0** | W-04 | 音频代理 `/api/stream/<token>` 支持 HTTP Range，浏览器可拖动进度条。 |
@@ -80,11 +80,11 @@
 
 ## 5. UI 设计要求
 
-### 5.1 网页端（声轨 Soundtrack 暗色主题，参考 `screenshot.png`）
+### 5.1 网页端（音符 Note 暗色主题，参考 `screenshot.png`）
 
 - **整体配色**：背景 `#0f1115` 系深黑；强调色暖橙（播放按钮 / 进度条 / 波形），次强调粉色（当前播放行渐变描边）；文本主色白、次色灰。
 - **顶栏**：
-  - 左：等高条 Logo（5 根高低不同的彩色矩形，象征均衡器 / 频谱）+ 「声轨」+ 副标「Soundtrack · powered by musicdl」。
+  - 左：等高条 Logo（5 根高低不同的彩色矩形，象征均衡器 / 频谱）+ 「音符」+ 副标「Note · powered by musicdl」。
   - 右：圆角搜索框（占位"搜索歌曲 / 歌手"），回车触发。
 - **音源 Tab**：横向胶囊样式，选中态描边 + 文字加亮；默认仅启用咪咕（与 `app.py` 默认值一致），可点选其他。
 - **结果列表**：表头「曲目 / 专辑 / 时长」三列；每行：左侧 48×48 圆角封面 → 歌名（白）+ 歌手（灰）→ 专辑（灰）→ 时长（右对齐）。

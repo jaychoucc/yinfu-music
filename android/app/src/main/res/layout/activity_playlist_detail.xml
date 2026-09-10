@@ -83,4 +83,13 @@
         android:layout_height="0dp"
         android:layout_weight="1"
         android:background="@color/bg" />
+
+    <!-- 迷你播放器：列表下方常驻，点整条可回到播放页。
+         高度必须显式写 66dp（理由同 activity_main.xml 的注释）：
+         include 的 layout_height 会覆盖根 FrameLayout，wrap_content 会吃掉底部 2dp 进度条。 -->
+    <include
+        android:id="@+id/mini_player"
+        layout="@layout/layout_mini_player"
+        android:layout_width="match_parent"
+        android:layout_height="66dp" />
 </LinearLayout>

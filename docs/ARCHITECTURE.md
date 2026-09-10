@@ -1,4 +1,4 @@
-# 声轨 Soundtrack — 系统设计与任务分解（ARCHITECTURE.md）
+# 音符 Note — 系统设计与任务分解（ARCHITECTURE.md）
 
 > 任务编号：software-musicdl-dual
 > 作者：架构师 高见远（Bob）
@@ -180,7 +180,7 @@ Store.on('results:append' | 'player:tick' | 'lyric:sync' | ..., fn)
 | 圆角 | 按钮/封面 8px；搜索框/胶囊 Tab 999px 全圆；卡片 12px |
 | 毛玻璃 | 底栏与歌词抽屉：`background: rgba(22,22,22,.72); backdrop-filter: blur(20px);` |
 | 字体层级 | 页面标题 18px/600；歌名 14px/500 #FFF；歌手/专辑 12px #9A9A9A；时长 12px 等宽 |
-| 布局 | 顶栏 56px（左 Logo 5 彩条 + 「声轨 / Soundtrack · powered by musicdl」，右圆角搜索框）；Tab 胶囊一行（选中：粉描边+文字提亮+微光晕）；结果表三列（曲目/专辑/时长），行高 64px，封面 48×48 圆角 8px；**当前播放行**左 4px 渐变描边 + 背景提亮 + "词"徽标；底栏 84px 三区（曲信息+词按钮 / 进度条+时间 / 播放大按钮 48px+上下曲+波形+音量）；歌词抽屉右侧 320px，当前行 opacity 1 + scale(1.05)，其余 .35 |
+| 布局 | 顶栏 56px（左 Logo 5 彩条 + 「音符 / Soundtrack · powered by musicdl」，右圆角搜索框）；Tab 胶囊一行（选中：粉描边+文字提亮+微光晕）；结果表三列（曲目/专辑/时长），行高 64px，封面 48×48 圆角 8px；**当前播放行**左 4px 渐变描边 + 背景提亮 + "词"徽标；底栏 84px 三区（曲信息+词按钮 / 进度条+时间 / 播放大按钮 48px+上下曲+波形+音量）；歌词抽屉右侧 320px，当前行 opacity 1 + scale(1.05)，其余 .35 |
 
 ## 4. 安卓端设计
 
@@ -415,7 +415,7 @@ org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1
 | ID | 任务 | 涉及文件 | 依赖 | 优先级 |
 |---|---|---|---|---|
 | **T01** | **网页端后端**：从 `.tmp/app.py` 落地工程化后端（拆分 config/registry/search/downloads/proxy 模块，行为与 app.py 完全一致），静态目录与启动脚本 | `web/app.py`、`web/server/{__init__,config,registry,search,downloads,proxy}.py`、`web/run.bat`、`web/requirements.txt` | 无 | P0 |
-| **T02** | **网页端前端**：暗色「声轨」UI 复刻截图（顶栏/胶囊 Tab/结果表/渐变当前行/毛玻璃底栏/波形/歌词抽屉）+ SSE 流式渲染 + 播放器/队列/歌词同步/下载进度/快捷键/搜索历史 | `web/static/index.html`、`web/static/css/style.css`、`web/static/js/{main,store,api,search,player,lyrics,queue,wave,history}.js` | T01（API 契约） | P0 |
+| **T02** | **网页端前端**：暗色「音符」UI 复刻截图（顶栏/胶囊 Tab/结果表/渐变当前行/毛玻璃底栏/波形/歌词抽屉）+ SSE 流式渲染 + 播放器/队列/歌词同步/下载进度/快捷键/搜索历史 | `web/static/index.html`、`web/static/css/style.css`、`web/static/js/{main,store,api,search,player,lyrics,queue,wave,history}.js` | T01（API 契约） | P0 |
 | **T03** | **安卓基础设施 + 四源客户端**：Gradle 工程（腾讯镜像/AGP8.1.4/SDK33/min24）、Manifest、主题与网络配置；`Song`/`MusicSource`/`SourceRegistry`/`AudioLinkTester`/`OkHttp` 单例；`Migu/Netease/Kuwo/QQ` 四源 Kotlin 移植（含 `KuwoCrypto`、咪咕解密、解析器链）；`MiniImageLoader`、`CrashGuard` | `android/settings.gradle.kts`、`android/build.gradle.kts`、`android/gradle.properties`、`android/gradle/wrapper/*`、`app/build.gradle.kts`、`proguard-rules.pro`、`AndroidManifest.xml`、`res/xml/network_security_config.xml`、`res/values/{colors,themes,strings}.xml`、`java/.../model/Song.kt`、`source/{MusicSource,SourceRegistry,AudioLinkTester,MiguMusicSource,NeteaseMusicSource,KuwoMusicSource,QQMusicSource,KuwoCrypto}.kt`、`util/{Net.kt,MiniImageLoader.kt,CrashGuard.kt,Formatters.kt}` | 无（与 T01/T02 并行） | P0 |
 | **T04** | **安卓播放链路 + 播放页**：`PlayerRepository`（队列/连播/失败跳下首/持久化）、`PlayerService`（MediaSessionService+通知+锁屏）、`LrcParser`；沉浸式 `PlayerActivity`（模糊背景/旋转封面/进度/控制行/歌词同步长按复制）；`SearchFragment`（Chips+去抖+流式结果） | `player/{PlayerRepository,PlayerService,LrcParser}.kt`、`ui/PlayerActivity.kt`、`ui/SearchFragment.kt`、`res/layout/{activity_player,item_song,item_lyric_line}.xml`、`res/layout/fragment_search.xml`、`res/drawable/*` | T03 | P0 |
 | **T05** | **安卓主框架 + 我的 + 下载 + 集成**：`MainActivity`+底部导航+`HomeFragment`（Banner+伪歌单瀑布）、`MineFragment`（下载列表/历史/清缓存）、`DownloadManager`（MediaStore/Soundtrack/流式+超时）、`PrefsStore`（历史/队列）、首选项主题色；双端联调自测 | `ui/{MainActivity,HomeFragment,MineFragment,SongAdapter,PlaylistAdapter}.kt`、`download/DownloadManager.kt`、`data/PrefsStore.kt`、`res/layout/{activity_main,fragment_home,fragment_mine}.xml`、`res/menu/bottom_nav.xml`、`res/navigation（可选）` | T04 | P1 |
