@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">音符</string>
+    <string name="tab_home">首页</string>
+    <string name="tab_search">搜索</string>
+    <string name="tab_mine">我的</string>
+    <string name="search_hint">搜索歌曲 / 歌手</string>
+    <string name="lyric_empty">暂无歌词</string>
+    <string name="download_done">已下载</string>
+    <string name="disclaimer">本项目为开源学习作品，仅用于技术研究与个人娱乐；所有音频、歌词、封面版权归原作者及各音乐平台所有。</string>
+</resources>

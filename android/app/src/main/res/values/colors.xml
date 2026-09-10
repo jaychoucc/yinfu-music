@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="bg">#161616</color>
+    <color name="panel">#1E1E1E</color>
+    <color name="panel_2">#232323</color>
+    <color name="hover">#262626</color>
+    <color name="border">#2E2E2E</color>
+    <color name="text">#FFFFFF</color>
+    <color name="text_2">#9A9A9A</color>
+    <color name="text_3">#5A5A5A</color>
+    <color name="accent_1">#F5488B</color>
+    <color name="accent_2">#FF8A5C</color>
+    <color name="teal">#2EDFA3</color>
+    <color name="red">#FF5A5A</color>
+    <color name="ic_launcher_background">#1E1E1E</color>
+</resources>

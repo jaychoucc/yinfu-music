@@ -1,0 +1,45 @@
+# ---------- Gradle & Android ----------
+android/.gradle/
+android/app/build/
+android/build/
+android/local.properties
+android/captures/
+android/.idea/
+
+# ---------- 本地构建工具链 (用户应自行安装) ----------
+build-tools/
+
+# ---------- 已废弃的旧实现 ----------
+web/
+ref/
+musicdl_outputs/
+
+# ---------- Agent / 临时 / 测试残文件 ----------
+.workbuddy/
+.tmp/
+a.html
+listing.html
+lrc.txt
+seg.mp3
+sse4.txt
+
+# ---------- 编译产物 ----------
+*.apk
+*.aab
+*.dex
+*.class
+
+# 唯一例外：app icon
+!android/app/src/main/res/mipmap-*/ic_launcher*.png
+
+# 允许保留 deliverables/APK 作为"已发布版本"归档
+!deliverables/software-musicdl-dual/apk/音符-note-*.apk
+deliverables/software-musicdl-dual/apk/
+
+# ---------- IDE / OS ----------
+.idea/
+*.iml
+.vscode/
+.DS_Store
+Thumbs.db
+*.swp

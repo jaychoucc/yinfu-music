@@ -1,0 +1,125 @@
+%% 声轨 Soundtrack — 类图（关键数据模型与服务）
+classDiagram
+    direction TB
+
+    %% ── 共享数据模型 ──
+    class Song {
+        +String songId
+        +String source
+        +String title
+        +String artist
+        +String album
+        +Int durationSec
+        +String coverUrl
+        +String playUrl
+        +String lrc
+        +String ext
+        +Long fileSizeBytes
+    }
+
+    %% ── 安卓端音乐源抽象 ──
+    class MusicSource {
+        <<interface>>
+        +String id
+        +String label
+        +search(keyword, pageSize) List~Song~
+        +resolvePlayUrl(song) String?
+        +fetchLyric(song) String?
+    }
+    class MiguMusicSource {
+        -decryptResp(body) JSONObject
+    }
+    class NeteaseMusicSource
+    class KuwoMusicSource {
+        -encryptQuery(query) String
+    }
+    class QQMusicSource
+    class SourceRegistry {
+        +byId(id) MusicSource?
+        +searchAll(keyword, ids, onEach, onSourceDone)
+    }
+    class AudioLinkTester {
+        +test(url) ResolvedInfo
+    }
+
+    MusicSource <|.. MiguMusicSource
+    MusicSource <|.. NeteaseMusicSource
+    MusicSource <|.. KuwoMusicSource
+    MusicSource <|.. QQMusicSource
+    SourceRegistry o-- MusicSource
+    MusicSource ..> AudioLinkTester : 链接可用性探测
+
+    %% ── 安卓端播放链路 ──
+    class PlayerRepository {
+        <<singleton>>
+        +ExoPlayer player
+        +List~Song~ queue
+        +Int currentIndex
+        +play(list, startIndex)
+        +playAt(index) +next() +prev() +toggle()
+        +addToQueue(song) +clearQueue()
+        +restoreFromPrefs() +persistToPrefs()
+    }
+    class PlayerService {
+        <<MediaSessionService>>
+        +onGetSession() MediaSession
+    }
+    class LrcParser {
+        +parse(raw) List~LyricLine~
+        +indexOf(timeMs) Int
+    }
+    class LyricLine {
+        +Long timeMs
+        +String text
+    }
+    class DownloadManager {
+        +enqueue(song, onProgress, onDone)
+    }
+    class MiniImageLoader {
+        +load(url, imageView, placeholderRes)
+    }
+    class PrefsStore {
+        +saveQueue() +loadQueue()
+        +saveHistory() +loadHistory()
+    }
+
+    PlayerRepository --> PlayerService : 持有 ExoPlayer
+    PlayerRepository --> Song : 队列
+    PlayerRepository ..> MusicSource : resolvePlayUrl
+    PlayerRepository ..> PrefsStore : 队列持久化
+    PlayerService --> PlayerRepository
+    LrcParser ..> LyricLine
+    DownloadManager ..> Song : 流式落盘
+
+    %% ── 网页端 Flask 后端 ──
+    class FlaskApp {
+        +route(/api/sources)
+        +route(/api/search) SSE
+        +route(/api/stream/<token>)
+        +route(/api/cover/<token>)
+        +route(/api/lyric/<token>)
+        +route(/api/download) +route(/api/file/<id>)
+    }
+    class TrackRegistry {
+        -tracks: Dict~str,dict~
+        +add(songInfo, source) str
+        +get(token) dict?
+    }
+    class SearchStream {
+        +searchStream(keyword, sources) Generator
+        -_drain(buckets, cursors)
+        -_safeSearch(client, url, bucket)
+    }
+    class DownloadManagerPy {
+        +runDownload(downloadId, token)
+        +getProgress(downloadId) dict
+    }
+    class ClientManager {
+        +client(source) musicdl客户端
+    }
+
+    FlaskApp --> SearchStream : /api/search
+    FlaskApp --> TrackRegistry : token 存取
+    FlaskApp --> DownloadManagerPy : /api/download
+    SearchStream --> ClientManager : 取四源 client
+    SearchStream --> TrackRegistry : 解析一首注册一个 token

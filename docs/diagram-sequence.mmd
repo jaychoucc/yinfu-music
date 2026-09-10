@@ -1,0 +1,63 @@
+%% 声轨 Soundtrack — 关键时序图
+%% 场景一：网页端 SSE 流式搜索 → 播放 → 歌词 → 下载
+sequenceDiagram
+    autonumber
+    participant FE as 前端 store.js/api.js
+    participant API as Flask app.py
+    participant SS as search_stream
+    participant CM as ClientManager(musicdl)
+    participant REG as TrackRegistry
+    participant UP as 音源上游
+
+    FE->>API: GET /api/search?q=周杰伦&sources=MiguMusicClient,...
+    API->>SS: search_stream(keyword, sources)
+    SS->>CM: client(source)
+    SS->>SS: 每源一个线程（内部多页 bucket 线程）
+    loop 每解析出一首（_drain 轮询 bucket）
+        SS->>UP: _search 逐曲解析真实音频URL
+        UP-->>SS: SongInfo(含 download_url/lyric)
+        SS->>REG: add(song_info, source) → token
+        SS-->>FE: SSE event:result {token, song_id, title, artist, ...}
+        FE->>FE: results.append + DOM 局部追加
+    end
+    SS-->>FE: SSE event:source_done {source, count, timed_out}
+    SS-->>FE: SSE event:done {count}
+
+    FE->>API: GET /api/stream/<token> (audio src, 支持 Range)
+    API->>UP: 透传 Range 拉流
+    UP-->>FE: 206 音频字节流（可拖动进度）
+    FE->>API: GET /api/lyric/<token>
+    API-->>FE: {lyric: LRC原文} → 解析+同步滚动
+    FE->>API: POST /api/download {token}
+    API-->>FE: {download_id}
+    FE->>API: EventSource /api/download/<id>/progress
+    API-->>FE: event:progress {...} → done 后提示保存 /api/file/<id>
+
+%% 场景二：安卓端 搜索 → 点击播放 → 通知栏/歌词
+sequenceDiagram
+    autonumber
+    participant SF as SearchFragment
+    participant SR as SourceRegistry
+    participant MS as XxxMusicSource(OkHttp)
+    participant PR as PlayerRepository
+    participant SVC as PlayerService(MediaSession)
+    participant PA as PlayerActivity
+
+    SF->>SR: searchAll(keyword, ids, onEach)
+    par 四源并发协程
+        SR->>MS: search(keyword)
+        MS-->>SR: List<Song>（逐条回调）
+    and
+        SR->>MS: resolvePlayUrl / fetchLyric
+    end
+    SR-->>SF: onEach(song) → adapter 流式插入
+    SF->>PR: play(queue, index)
+    PR->>MS: resolvePlayUrl(song)
+    PR->>PR: ExoPlayer.setMediaItem → prepare → play
+    PR->>SVC: 前台通知（MediaStyle：上一首/暂停/下一首，锁屏可见）
+    SF->>PA: 启动沉浸式播放页
+    loop 每 100ms
+        PA->>PR: currentPosition
+        PA->>PA: LrcParser.indexOf → 当前行高亮滚动
+    end
+    PR->>PR: onPlayerError → Toast + 自动 next()
