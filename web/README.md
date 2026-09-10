@@ -1,4 +1,4 @@
-# 声轨 Soundtrack —— 网页端
+# 音符 —— 网页端
 
 基于 [musicdl](https://github.com/CharlesPikachu/musicdl) 的聚合音乐搜索/播放/下载网页。
 
