@@ -1,4 +1,4 @@
-# 声轨 Soundtrack —— 移动端
+# 音符 —— 移动端
 
 > 一个 **完全独立** 的安卓音乐 App：57 个跨源搜索、本地原生播放、网易云风格首页。
 > 手机端不需要电脑代理、不需要登录、不需要付费会员。
@@ -13,7 +13,6 @@
 把开源 [musicdl](https://github.com/CharlesPikachu/musicdl) 的 **57 个音乐源客户端** 全部移植成 Kotlin，
 在 Android 手机上**完全独立**地搜索、播放、下载来自咪咕 / 网易云 / 酷我 / QQ / Spotify / SoundCloud / 维基共享 / 5sing …… 的音乐。
 
-参考设计：**lxywhut/lx-music-mobile**（同款 NetEase 风格首页 + 横向 Rail）。
 
 ## ✨ 特性
 
