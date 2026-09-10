@@ -178,6 +178,19 @@ class NetEaseHomeApi {
     /**
      * NetEase 歌曲结构转本 app 的 Song（兼容新老两套字段）。
      * 播放由 NeteaseMusicSource.resolvePlayUrl 完成。
+     *
+     * 版权位路由（修复 30s 试听 bug）：
+     * 经验证,网易在 tracks[].fee 里直接告诉了我们这首歌能不能给完整流:
+     *   - fee=1 (VIP) / fee=4 (专辑独占) → 网易 /api/song/url 必返 30s 试听
+     *   - fee=0 (免费) / fee=8 (低音质)  → 网易能返完整流
+     * PlayerRepository 的 FALLBACK_SOURCES 顺序是 ["migu","kuwo","qq","kugou","myfreemp3","netease"],
+     * 因此把 VIP/专辑独占两类 track 的 song.source 改成 "migu",主解析器第一发就会击中
+     * 咪咕的完整流,网易退到兜底链末尾。其余曲目继续让 netease 当主,行为与旧版本一致。
+     *
+     * 字段缺失时 optInt 默认 0,等价于 fee=0 = 免费 → 走 netease,100% 向后兼容。
+     *
+     * ⚠️ 不读 tracks[].st 字段:在 /api/personalized/playlist 与 /api/v6/playlist/detail
+     *    这两个端点里 st=0 是正常可播取值(60/60 命中),用它做路由会 100% 短路成 migu。
      */
     private fun trackToSong(t: JSONObject?): Song? {
         if (t == null) return null
@@ -197,9 +210,16 @@ class NetEaseHomeApi {
         // 时长：新接口 duration，老接口 dt
         val durationMs = t.optLong("duration").takeIf { it > 0 } ?: t.optLong("dt", 0L)
 
+        // 版权位路由：fee=1 VIP / fee=4 专辑独占 → 网易必返 30s 试听,绕开
+        val fee = t.optInt("fee", 0)  // 字段缺失 → 默认 0 → 走 netease,全兼容
+        val source = when {
+            fee == 1 || fee == 4 -> "migu"  // VIP / 专辑独占,让咪咕当主
+            else -> "netease"               // fee=0 免费 / fee=8 低音质 / 缺失 → 网易主解析器直接给完整
+        }
+
         return Song(
             songId = id.toString(),
-            source = "netease",
+            source = source,
             title = name,
             artist = artist,
             album = album,
