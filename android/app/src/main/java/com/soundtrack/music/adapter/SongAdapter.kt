@@ -55,6 +55,7 @@ class SongAdapter(
         private val artist: TextView = v.findViewById(R.id.artist)
         private val source: TextView = v.findViewById(R.id.source)
         private val quality: TextView = v.findViewById(R.id.quality)
+        private val duration: TextView = v.findViewById(R.id.duration)
         private val more: ImageButton = v.findViewById(R.id.btn_more)
 
         fun bind(s: Song) {
@@ -72,6 +73,7 @@ class SongAdapter(
                 "高品质" -> 0xFF2EDFA3.toInt()
                 else -> 0xFF7E8590.toInt()
             })
+            duration.text = if (s.durationSec > 0) formatDuration(s.durationSec) else ""
             loader.load(s.coverUrl, cover)
             itemView.setOnClickListener { onClick(s) }
             more.setOnClickListener { onDownload?.invoke(s) }
@@ -87,4 +89,10 @@ class SongAdapter(
             "myfreemp3" to "MyFreeMP3",
         )
     }
+}
+
+private fun formatDuration(sec: Int): String {
+    val m = sec / 60
+    val s = sec % 60
+    return "%d:%02d".format(m, s)
 }

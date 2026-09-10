@@ -85,8 +85,13 @@ class TuneHubMusicSource : MusicSource {
                             val title = x.optString("name").ifBlank { continue }
                             val singers = x.optJSONArray("singer")
                             val artist = if (singers != null) (0 until singers.length()).mapNotNull { singers.optJSONObject(it)?.optString("name") }.joinToString(", ") else ""
-                            val album = x.optJSONObject("album")?.optString("name") ?: ""
-                            list.add(song(songId, title, artist, album, "", "qq"))
+                            val albumObj = x.optJSONObject("album")
+                            val albumMid = albumObj?.optString("mid").orEmpty()
+                            val album = albumObj?.optString("name") ?: ""
+                            val cover = if (albumMid.isNotBlank())
+                                "https://y.gtimg.cn/music/photo_new/T002R300x300M000$albumMid.jpg"
+                            else ""
+                            list.add(song(songId, title, artist, album, cover, "qq"))
                         }
                     }
                 } catch (e: Exception) { }
@@ -117,7 +122,10 @@ class TuneHubMusicSource : MusicSource {
                             val title = it.optString("SONGNAME").ifBlank { continue }
                             val artist = (it.optString("ARTIST") ?: "").replace("&", ", ")
                             val album = it.optString("ALBUM")
-                            list.add(song(rid, title, artist, album, "", "kuwo"))
+                            val pic = it.optString("pic").ifBlank { "" }
+                            val cover = if (pic.isNotBlank()) pic
+                                else "https://img4.kuwo.cn/star/albumcover/300/$rid.jpg"
+                            list.add(song(rid, title, artist, album, cover, "kuwo"))
                         }
                     }
                 } catch (e: Exception) { }

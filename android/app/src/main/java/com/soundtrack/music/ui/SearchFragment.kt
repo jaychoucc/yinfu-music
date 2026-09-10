@@ -157,18 +157,22 @@ class SearchFragment : Fragment() {
 
         // 探测失败的 song 计数：原子操作 + 协程并发安全
         val filteredCount = AtomicInteger(0)
+        // 收集所有"探测通过"的 (song, 相关性评分) 对，搜索结束后统一排序一次性 setData
+        // 这样相关性 / 音质 / 时长三维排序才有意义（边探测边 add 无法重排）。
+        // 用 Pair 预存 score 避免 Comparator 内重复计算 searchScore。
+        val candidates = mutableListOf<Pair<Song, Int>>()
+        val kw = keyword.trim()
 
         searchJob = lifecycleScope.launch {
             try {
                 SourceResolver.registry.searchAll(keyword, directIds,
                     onEach = { song ->
                         if (song.source !in playableIds) return@searchAll
-                        // 每条 song 独立并发探测（≤ 6s 单首超时）；能播才加入 adapter
+                        // 每条 song 独立并发探测（≤ 6s 单首超时）；能播才加入候选池
                         val job = lifecycleScope.launch {
                             val playable = probePlayable(song)
                             if (playable) {
-                                adapter.add(song)
-                                emptyText.visibility = if (adapter.itemCount == 0) View.VISIBLE else View.GONE
+                                synchronized(candidates) { candidates.add(song to searchScore(song, kw)) }
                             } else {
                                 filteredCount.incrementAndGet()
                             }
@@ -184,17 +188,31 @@ class SearchFragment : Fragment() {
                     snapshot.forEach { it.join() }
                 }
 
+                // 三维降序：相关性（title相等>title含>artist含） → 音质（无损>高品>标准） → 时长
+                // 主键必须先是 searchScore，否则 quality=3 的"那些年 flac"会压过 score=1000 的
+                // "等你下课 320k"，让"搜等你下课出现那些年"问题复发。同相关性内音质决胜负，时长兜底。
+                val sorted = synchronized(candidates) {
+                    candidates.sortedWith(
+                        compareByDescending<Pair<Song, Int>> { it.second }
+                            .thenByDescending { qualityRank(it.first) }
+                            .thenByDescending { it.first.durationSec }
+                    ).map { it.first }
+                }
+                if (sorted.isNotEmpty()) {
+                    adapter.setData(sorted)
+                }
+
                 val n = filteredCount.get()
                 if (n > 0) {
                     Toast.makeText(requireContext(), "已过滤 $n 首不可播放", Toast.LENGTH_SHORT).show()
                 }
 
                 emptyText.text = when {
-                    adapter.itemCount > 0 -> ""
+                    sorted.isNotEmpty() -> ""
                     directIds.isEmpty() -> "请在音源管理里启用至少一个音源"
                     else -> "未找到结果（夸克网盘/需登录的源已自动过滤）"
                 }
-                emptyText.visibility = if (adapter.itemCount == 0) View.VISIBLE else View.GONE
+                emptyText.visibility = if (sorted.isEmpty()) View.VISIBLE else View.GONE
             } catch (e: Exception) {
                 Toast.makeText(requireContext(), "搜索失败：${e.message}", Toast.LENGTH_SHORT).show()
                 emptyText.text = "搜索失败"
@@ -220,6 +238,35 @@ class SearchFragment : Fragment() {
                 !url.isNullOrBlank() && url.startsWith("http")
             }.getOrDefault(false)
         } ?: false
+    }
+
+    /**
+     * 搜索相关性评分：title 完全相等（去空格 / 不区分大小写）= 1000；
+     * title 包含 keyword = 100；artist 包含 keyword = 50；否则 0。
+     * 用于排序的次键，让"等你下课"优先于"那些年"出现在前面。
+     */
+    private fun searchScore(song: Song, keyword: String): Int {
+        val t = song.title.trim().lowercase()
+        val a = song.artist.trim().lowercase()
+        val k = keyword.trim().lowercase()
+        if (k.isEmpty()) return 0
+        return when {
+            t == k -> 1000
+            t.contains(k) -> 100
+            a.contains(k) -> 50
+            else -> 0
+        }
+    }
+
+    /**
+     * 音质等级映射：无损（flac/wav/ape/alac 或 bitrate≥900）= 3；高品（bitrate≥320）= 2；标准 = 1。
+     * 用于排序的主键，让高品质结果排在前面。
+     */
+    private fun qualityRank(s: Song): Int = when {
+        s.bitrate >= 900 -> 3
+        s.ext.lowercase() in setOf("flac", "wav", "ape", "alac") -> 3
+        s.bitrate >= 320 -> 2
+        else -> 1
     }
 
     private fun playSong(song: Song) {

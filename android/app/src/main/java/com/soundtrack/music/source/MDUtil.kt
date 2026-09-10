@@ -20,6 +20,8 @@ fun legalizeString(s: String?): String {
     return s.replace("\u200b", "")
         .replace("\ufeff", "")
         .replace("♪", " ")
+        .replace(Regex("<[^>]+>"), "")
+        .replace(Regex("&[a-zA-Z]+;"), " ")
         .replace(Regex("\\s+"), " ")
         .trim()
 }

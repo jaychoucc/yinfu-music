@@ -15,6 +15,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **C 方案守护扩展**：fallback 命中 netease URL 时复用 `NeteaseMusicSource.isLikelyPreview`（已改 `internal`）判定 30s 试听，`continue` 跳过，避免破坏上一轮已交付的 fee∈{1,4} 不走 netease 语义
   - **跨源补搜链路扩展**：`FALLBACK_SOURCES` 加 `joox`（HK/TW/SEA 兜底）+ `apple`（iTunes 公开 search + amp-api edge 全球目录）；单源超时 `6s→8s`、总预算 `12s→24s`
   - **实证**：QA `qa/fallback_trace.py` 6 个场景全 PASS；iTunes Search API 实测"混账 周柏豪"命中 1 条；Joox Search 实测返回 30 条；C 方案 60 首曲目路由无回归（fee=1→migu 19/19、fee=0/8→netease 全保持）
+- 搜索体验优化：
+  - `legalizeString` 剥除 HTML 标签与实体（`<em class="hl">` 残留修复，5sing 等源 title 不再含 `<>`）
+  - TuneHub qq/kuwo 搜索结果补封面：qq 用 `album.mid` 拼 `https://y.gtimg.cn/music/photo_new/T002R300x300M000{mid}.jpg`，kuwo 优先 `pic` 字段、缺则兜底 `https://img4.kuwo.cn/star/albumcover/300/{rid}.jpg`
+  - 搜索结果按"相关性（title相等>title含>artist含） → 音质（无损>高品>标准） → 时长（降序）"排序（相关性放在主键避免"搜『等你下课』却先出『那些年』的无损版"的反用户体验）
+  - 搜索结果列表新增时长显示（`mm:ss` 格式，`durationSec=0` 不显示）
+  - 保留原有 6s 解析探测 + Toast「已过滤 N 首不可播放」，确保最终结果均为可播放
 
 ## [2.0.0] - 2026-09-10
 
