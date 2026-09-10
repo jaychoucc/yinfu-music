@@ -23,6 +23,7 @@ import com.soundtrack.music.model.Song
 import com.soundtrack.music.player.PlayerRepository
 import com.soundtrack.music.source.SourceResolver
 import com.soundtrack.music.util.MiniImageLoader
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
@@ -173,6 +174,10 @@ class SearchFragment : Fragment() {
                             val playable = probePlayable(song)
                             if (playable) {
                                 synchronized(candidates) { candidates.add(song to searchScore(song, kw)) }
+                                // 渐进上屏：每有一条探测通过就重排序整体替换。
+                                // 上一轮改成「全部收齐再 setData」导致某源慢时搜索页卡死 35s 无任何结果
+                                // （「晚安」转圈根因）；100 条规模重排是 O(n log n)，主线程无压力。
+                                publishCandidates(candidates)
                             } else {
                                 filteredCount.incrementAndGet()
                             }
@@ -188,35 +193,53 @@ class SearchFragment : Fragment() {
                     snapshot.forEach { it.join() }
                 }
 
-                // 三维降序：相关性（title相等>title含>artist含） → 音质（无损>高品>标准） → 时长
-                // 主键必须先是 searchScore，否则 quality=3 的"那些年 flac"会压过 score=1000 的
-                // "等你下课 320k"，让"搜等你下课出现那些年"问题复发。同相关性内音质决胜负，时长兜底。
-                val sorted = synchronized(candidates) {
-                    candidates.sortedWith(
-                        compareByDescending<Pair<Song, Int>> { it.second }
-                            .thenByDescending { qualityRank(it.first) }
-                            .thenByDescending { it.first.durationSec }
-                    ).map { it.first }
-                }
-                if (sorted.isNotEmpty()) {
-                    adapter.setData(sorted)
-                }
+                // 最终再排一次 + 更新空状态文案（渐进发布期间已上屏，这里是收尾刷新）
+                publishCandidates(candidates)
 
                 val n = filteredCount.get()
-                if (n > 0) {
+                if (n > 0 && isAdded) {
                     Toast.makeText(requireContext(), "已过滤 $n 首不可播放", Toast.LENGTH_SHORT).show()
                 }
 
                 emptyText.text = when {
-                    sorted.isNotEmpty() -> ""
+                    adapter.itemCount > 0 -> ""
                     directIds.isEmpty() -> "请在音源管理里启用至少一个音源"
                     else -> "未找到结果（夸克网盘/需登录的源已自动过滤）"
                 }
-                emptyText.visibility = if (sorted.isEmpty()) View.VISIBLE else View.GONE
+                emptyText.visibility = if (adapter.itemCount == 0) View.VISIBLE else View.GONE
+            } catch (e: CancellationException) {
+                // 正常取消（新一轮搜索 / 退出页面），不是失败，不走错误 UI。
+                // 上一轮用 catch(Exception) 吞掉了它，随后在已 detach 的 Fragment 上调
+                // requireContext() 抛 IllegalStateException → crash.log 三条搜索页崩溃全是它。
+                throw e
             } catch (e: Exception) {
-                Toast.makeText(requireContext(), "搜索失败：${e.message}", Toast.LENGTH_SHORT).show()
-                emptyText.text = "搜索失败"
+                if (isAdded) {
+                    Toast.makeText(requireContext(), "搜索失败：${e.message}", Toast.LENGTH_SHORT).show()
+                    emptyText.text = "搜索失败"
+                    emptyText.visibility = View.VISIBLE
+                }
             }
+        }
+    }
+
+    /**
+     * 渐进式上屏：对当前候选池做三维降序排序后整体替换 adapter。
+     *  - 主键 searchScore（相关性：title相等>title含>artist含），避免 quality=3 的同名翻唱压过 score=1000 的正主；
+     *  - 次键 qualityRank（无损>高品>标准）；
+     *  - 三键 durationSec 降序（0 自然沉底）。
+     * 100 条规模重排是 O(n log n)，主线程无压力；每条探测完成就调一次，用户 2-3 秒可见首批。
+     */
+    private fun publishCandidates(candidates: List<Pair<Song, Int>>) {
+        val sorted = synchronized(candidates) {
+            candidates.sortedWith(
+                compareByDescending<Pair<Song, Int>> { it.second }
+                    .thenByDescending { qualityRank(it.first) }
+                    .thenByDescending { it.first.durationSec }
+            ).map { it.first }
+        }
+        if (sorted.isNotEmpty()) {
+            adapter.setData(sorted)
+            emptyText.visibility = View.GONE
         }
     }
 

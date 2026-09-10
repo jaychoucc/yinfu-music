@@ -21,6 +21,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 搜索结果按"相关性（title相等>title含>artist含） → 音质（无损>高品>标准） → 时长（降序）"排序（相关性放在主键避免"搜『等你下课』却先出『那些年』的无损版"的反用户体验）
   - 搜索结果列表新增时长显示（`mm:ss` 格式，`durationSec=0` 不显示）
   - 保留原有 6s 解析探测 + Toast「已过滤 N 首不可播放」，确保最终结果均为可播放
+- 「混帐-周柏豪」等华纳版权歌仍 30 秒戛然而止 + 搜索「晚安」长时间转圈/退出崩溃：
+  - **试听守护升级**：`isLikelyPreview` 的 MPEG sync-word 密度判定会被「完整有效的 30s 试听」骗过（haitangw 返回的网易 IoT 通道试听 480KB 全是有效帧，sync=1087 > 阈值 600）。新建 `PreviewGuard`：用 Content-Range 总大小 ÷ 元数据时长估算隐含码率，< 48kbps 判试听；时长未知时 < 600KB 判试听；拿不到大小时退回 sync-word 判定
+  - **守护范围扩展**：从「仅 fallback 的 netease 命中」扩展到主源 + fallback 全部音源（实测拦下 haitangw 30s / kuwo 11s / apple 30s 试听）
+  - **migu copyrightCache 键 bug**：跨源路由（fee=1 网易歌）的 `resolvePlayUrl` 用网易 id 查咪咕 contentId 缓存 100% miss；修复为按 title+artist 重搜 migu 拿自己的 contentId/copyrightId，且 title 精确匹配拒绝同名翻唱（山岚版《混帐》）
+  - **诚实提示**：全链只剩试听时提示「暂无完整免费音源（试听片段已过滤）」，不再播 30 秒戛然而止
+  - **搜索渐进上屏**：恢复「探测通过即上屏」体验但保留三维排序 —— 每条探测完成就重排序整体替换，不再等 `searchAll` 全部返回（单源超时 35s→10s + 渐进发布，「晚安」2-3 秒可见首批）
+  - **搜索页崩溃修复**：`catch(Exception)` 吞掉 CancellationException 后在 detach 的 Fragment 上调 `requireContext()` 抛 IllegalStateException；改为取消异常 rethrow + `isAdded` 守护
 
 ## [2.0.0] - 2026-09-10
 

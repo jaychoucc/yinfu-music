@@ -71,7 +71,12 @@ class NeteaseMusicSource : MusicSource {
         )
     }
 
-    private suspend fun resolveUrl(songId: String): AudioLinkTester.Result? {
+    /**
+     * 解析播放地址：逐 quality 尝试第三方解析链。
+     * 试听守护已升级为「时长估算」并移至共享的 [PreviewGuard]（sync-word 密度判定
+     * 会被 haitangw 返回的「完整有效 30s 试听」骗过），这里按元数据时长做码率估算。
+     */
+    private suspend fun resolveUrl(songId: String, durationSec: Int): AudioLinkTester.Result? {
         val qualities = listOf("lossless", "exhigh", "standard")
         for (q in qualities) {
             try {
@@ -84,62 +89,12 @@ class NeteaseMusicSource : MusicSource {
                 val downloadUrl = json.optJSONObject("data")?.optString("url") ?: continue
                 // 试听探测：third-party 解析链对多数歌只返回 9~30s 试听片段，
                 // 命中则跳过该 quality，避免试听流到 ExoPlayer（9 秒自动 STATE_ENDED）。
-                if (isLikelyPreview(downloadUrl)) continue
+                if (PreviewGuard.isPreview(downloadUrl, durationSec)) continue
                 AudioLinkTester.test(downloadUrl)?.let { return it }
             } catch (_: Exception) {
             }
         }
         return null
-    }
-
-    /**
-     * 试听片段探测：拉取前 256KB 并统计 MPEG audio sync word（0xFF + 次字节 111xxxxx）密度。
-     * MPEG1 L3@128kbps 每帧 144B：9.7s 试听 ≈ 420 帧，256KB 完整切片 ≈ 1780 帧，
-     * 阈值 600 帧（≈5.3s 真音频）可稳定区分；任何异常一律保守判为试听，宁可走跨源回退。
-     *
-     * 暴露为 internal 让 PlayerRepository 的 fallback 能在拿到 netease URL 后复用同一份判定，
-     * 避免同一首歌被上游当作「可播」但落到 ExoPlayer 后 9 秒自动 STATE_ENDED。
-     */
-    internal suspend fun isLikelyPreview(downloadUrl: String): Boolean = withContext(Dispatchers.IO) {
-        try {
-            withTimeoutOrNull(2_500L) {
-                val req = Request.Builder()
-                    .url(downloadUrl)
-                    .header("Range", "bytes=0-262143")
-                    .header("User-Agent", "Mozilla/5.0")
-                    .build()
-                val bytes = Net.client().newCall(req).execute().use { resp ->
-                    val body = resp.body ?: return@use null
-                    val buf = ByteArray(262_144)
-                    var off = 0
-                    body.byteStream().use { ins ->
-                        while (off < buf.size) {
-                            val n = ins.read(buf, off, buf.size - off)
-                            if (n <= 0) break
-                            off += n
-                        }
-                    }
-                    if (off == buf.size) buf else buf.copyOf(off)
-                } ?: return@withTimeoutOrNull true
-
-                var syncCount = 0
-                var i = 0
-                val limit = bytes.size - 1
-                while (i < limit) {
-                    if ((bytes[i].toInt() and 0xFF) == 0xFF &&
-                        (bytes[i + 1].toInt() and 0xE0) == 0xE0
-                    ) {
-                        syncCount++
-                        i += 2
-                    } else {
-                        i++
-                    }
-                }
-                bytes.size < 65_536 || syncCount < 600
-            } ?: true
-        } catch (_: Exception) {
-            true
-        }
     }
 
     private fun fetchLyric(songId: String): String? {
@@ -171,7 +126,7 @@ class NeteaseMusicSource : MusicSource {
     override suspend fun resolvePlayUrl(song: Song): String? = withContext(Dispatchers.IO) {
         if (song.hasPlayUrl) return@withContext song.playUrl
         withTimeoutOrNull(20_000) {
-            resolveUrl(song.songId)?.url?.also { song.playUrl = it }
+            resolveUrl(song.songId, song.durationSec)?.url?.also { song.playUrl = it }
         } ?: song.playUrl.takeIf { it.startsWith("http") }
     }
 

@@ -120,14 +120,42 @@ class MiguMusicSource : MusicSource {
         return null
     }
 
+    /**
+     * 解析播放地址。两条路径：
+     *  - 路径 A：歌本身来自 migu 搜索（songId == contentId），直接命中 copyrightCache；
+     *  - 路径 B：跨源路由过来的歌（fee=1 的网易歌），songId 是外部 id，
+     *    copyrightCache[外部id] 必然 miss（旧 bug 就在这里：搜完 migu 后仍然用
+     *    网易 id 查缓存 → 永远 null → 主源 100% 失败）。必须按 title+artist
+     *    重搜 migu 拿自己的 contentId/copyrightId；title 精确匹配拒绝同名翻唱。
+     */
     override suspend fun resolvePlayUrl(song: Song): String? = withContext(Dispatchers.IO) {
         if (song.hasPlayUrl) return@withContext song.playUrl
-        val cid = copyrightCache[song.songId]
-            ?: runCatching { search(song.title + " " + song.artist, 3).firstOrNull()?.let { copyrightCache[song.songId] } }.getOrNull()
-        if (cid.isNullOrBlank()) return@withContext null
-        withTimeoutOrNull(20_000) {
-            resolveBy(contentId = song.songId, copyrightId = cid)?.url?.also { song.playUrl = it }
+        // 路径 A：歌本身来自 migu 搜索（songId == contentId），直接命中缓存
+        copyrightCache[song.songId]?.let { cid ->
+            withTimeoutOrNull(20_000) {
+                resolveBy(song.songId, cid)?.url?.also { song.playUrl = it }
+            }?.let { return@withContext it }
         }
+        // 路径 B:跨源路由过来的歌(fee=1 的网易歌),songId 是外部 id ——
+        // 必须按 title+artist 重搜 migu,拿 migu 自己的 contentId/copyrightId。
+        // title 精确 + artist 首位歌手互含,避免「山岚版混帐」这类同名翻唱冒充正主。
+        val matched = runCatching {
+            search(song.title + " " + song.artist, 5).firstOrNull { m ->
+                m.title.equals(song.title, ignoreCase = true) && artistsMatch(m.artist, song.artist)
+            }
+        }.getOrNull() ?: return@withContext null
+        val mCid = copyrightCache[matched.songId] ?: return@withContext null
+        withTimeoutOrNull(20_000) {
+            resolveBy(matched.songId, mCid)?.url?.also { song.playUrl = it }
+        }
+    }
+
+    /** 任一方首位歌手名被另一方包含即算同一艺人（容错"周柏豪" vs "周柏豪 Pakho"） */
+    private fun artistsMatch(a: String, b: String): Boolean {
+        if (a.isBlank() || b.isBlank()) return true  // 缺元数据时只信 title
+        val firstA = a.split(",", "、", ";").firstOrNull { it.isNotBlank() }?.trim() ?: return true
+        val firstB = b.split(",", "、", ";").firstOrNull { it.isNotBlank() }?.trim() ?: return true
+        return a.contains(firstB, ignoreCase = true) || b.contains(firstA, ignoreCase = true)
     }
 
     override suspend fun fetchLyric(song: Song): String? = withContext(Dispatchers.IO) {

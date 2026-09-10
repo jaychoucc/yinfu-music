@@ -23,7 +23,7 @@ class SourceRegistry(val sources: List<MusicSource>) {
                 var count = 0
                 var timedOut = false
                 try {
-                    withTimeout(35000) {
+                    withTimeout(10_000) {  // 单源搜索超时 10s：35s 会让整个搜索页卡死等一个慢源（「晚安」转圈根因）
                         val list = source.search(keyword, 20)
                         list.forEach {
                             ensureActive()

@@ -11,7 +11,7 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import com.soundtrack.music.model.Song
-import com.soundtrack.music.source.NeteaseMusicSource
+import com.soundtrack.music.source.PreviewGuard
 import com.soundtrack.music.source.SourceResolver
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -63,6 +63,11 @@ class PlayerRepository private constructor(context: Context) {
     private var resolveJob: Job? = null
     /** 每次发起新的切歌请求自增，用于丢弃已过期的解析结果。 */
     private var resolveToken: Int = 0
+    /**
+     * 本轮 resolvePlayableUrl 是否因试听守护跳过过候选 URL。
+     * 用于在最终失败时给出「只有试听」的诚实提示，而不是笼统的「解析失败」。
+     */
+    private var skippedPreviewInResolve = false
 
     private val _currentSong = MutableStateFlow<Song?>(null)
     val currentSong: StateFlow<Song?> = _currentSong
@@ -230,11 +235,11 @@ class PlayerRepository private constructor(context: Context) {
                     if (nextIdx >= 0) {
                         playAt(nextIdx)
                         // playAt 开头会把 _error 清成 null，所以提示必须在它之后设置
-                        _error.value = "《${song.title}》解析失败，已跳过"
+                        _error.value = if (skippedPreviewInResolve) "《${song.title}》仅找到试听片段（已过滤），已跳过" else "《${song.title}》解析失败，已跳过"
                     } else {
                         // 单曲队列（保持就地停止，不自动重播）或所有候选都失败：真正停下来
                         stopPlayback()
-                        _error.value = "无法解析《${song.title}》的播放地址，请切换音源或稍后重试"
+                        _error.value = if (skippedPreviewInResolve) "《${song.title}》暂无完整免费音源（试听片段已过滤）" else "无法解析《${song.title}》的播放地址，请切换音源或稍后重试"
                     }
                 }
             }
@@ -252,6 +257,7 @@ class PlayerRepository private constructor(context: Context) {
      * 这里两个分支都回填。
      */
     private suspend fun resolvePlayableUrl(song: Song): String? {
+        skippedPreviewInResolve = false
         // 1) 当前音源
         val mainUrl = runCatching {
             withTimeoutOrNull(RESOLVE_TIMEOUT_MS) {
@@ -259,9 +265,15 @@ class PlayerRepository private constructor(context: Context) {
             }
         }.getOrNull()
         if (!mainUrl.isNullOrBlank() && mainUrl.startsWith("http")) {
-            // 回填：让这首歌下次直接命中 hasPlayUrl 分支，不再重复解析
-            song.playUrl = mainUrl
-            return mainUrl
+            // 全源守护：主源返回的 URL 也可能是 30s 试听（实测 migu 之外的链路发生过），
+            // 被守护拦下则记标记并继续走跨源回退，而不是直接放给 ExoPlayer。
+            if (PreviewGuard.isPreview(mainUrl, song.durationSec)) {
+                skippedPreviewInResolve = true
+            } else {
+                // 回填：让这首歌下次直接命中 hasPlayUrl 分支，不再重复解析
+                song.playUrl = mainUrl
+                return mainUrl
+            }
         }
 
         // 2) 主力音源补搜：有总时间预算，且每个音源独立超时
@@ -289,9 +301,11 @@ class PlayerRepository private constructor(context: Context) {
             }.getOrNull()
             val found = foundSong?.playUrl
             if (!found.isNullOrBlank() && found.startsWith("http")) {
-                // C 方案守护（扩展到 fallback）：若这条命中是 netease 的 30s 试听片段，
-                // 跳过这条 song，继续找下一源。不破坏上一轮已交付的「主源不走 netease 给 fee∈{1,4}」语义。
-                if (foundSong.source == "netease" && NeteaseMusicSource().isLikelyPreview(found)) {
+                // 全源守护：不再只盯 netease —— 任何源的命中 URL 都可能是 9~30s 试听
+                // （实测拦下 haitangw 30s / kuwo 11s / apple 30s 试听），拦下则继续找下一源。
+                val expectedDur = maxOf(song.durationSec, foundSong.durationSec)
+                if (PreviewGuard.isPreview(found, expectedDur)) {
+                    skippedPreviewInResolve = true
                     continue
                 }
                 song.playUrl = found
