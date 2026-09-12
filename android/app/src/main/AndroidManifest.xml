@@ -37,6 +37,11 @@
             android:screenOrientation="portrait" />
 
         <activity
+            android:name=".ui.FavoritePlaylistActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
+
+        <activity
             android:name=".ui.PlaylistDetailActivity"
             android:exported="false"
             android:screenOrientation="portrait" />
