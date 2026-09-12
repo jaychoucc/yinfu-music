@@ -1,5 +1,6 @@
 package com.soundtrack.music.ui
 
+import android.content.Intent
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
@@ -45,6 +46,9 @@ class MineFragment : Fragment() {
 
         view.findViewById<Button>(R.id.btn_source_status).setOnClickListener {
             showSourceStatus()
+        }
+        view.findViewById<Button>(R.id.btn_favorite_playlist).setOnClickListener {
+            startActivity(Intent(requireContext(), FavoritePlaylistActivity::class.java))
         }
 
         loadDownloads()
