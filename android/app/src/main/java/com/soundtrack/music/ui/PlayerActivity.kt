@@ -3,6 +3,7 @@ package com.soundtrack.music.ui
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.res.ColorStateList
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.drawable.BitmapDrawable
@@ -22,6 +23,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.soundtrack.music.R
 import com.soundtrack.music.adapter.LyricAdapter
+import com.soundtrack.music.data.FavoritePlaylistStore
 import com.soundtrack.music.download.DownloadManager
 import com.soundtrack.music.model.Song
 import com.soundtrack.music.player.LrcParser
@@ -39,6 +41,8 @@ import kotlinx.coroutines.withTimeoutOrNull
 class PlayerActivity : AppCompatActivity() {
 
     private lateinit var repo: PlayerRepository
+    private lateinit var favoriteStore: FavoritePlaylistStore
+    private lateinit var btnFavorite: ImageButton
     private lateinit var loader: MiniImageLoader
     private lateinit var lyricAdapter: LyricAdapter
     /** 缓存歌词列表与标题/歌手控件：updateLyric 每 300ms 跑一次，不该重复 findViewById */
@@ -70,6 +74,7 @@ class PlayerActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_player)
         repo = PlayerRepository.get(this)
+        favoriteStore = FavoritePlaylistStore(this)
         loader = MiniImageLoader(this)
         lyricAdapter = LyricAdapter()
 
@@ -84,6 +89,7 @@ class PlayerActivity : AppCompatActivity() {
         val btnNext = findViewById<ImageButton>(R.id.btn_next)
         val btnPrev = findViewById<ImageButton>(R.id.btn_prev)
         val btnDownload = findViewById<ImageButton>(R.id.btn_download)
+        btnFavorite = findViewById(R.id.btn_favorite)
         recyclerLyrics = findViewById(R.id.recycler_lyrics)
 
         recyclerLyrics.layoutManager = LinearLayoutManager(this)
@@ -117,10 +123,12 @@ class PlayerActivity : AppCompatActivity() {
                 bgView.setImageBitmap(null)
                 lyricLines = emptyList()
                 lyricAdapter.setData(emptyList())
+                renderFavorite(null)
                 return@onEach
             }
             titleView.text = song.title
             artistView.text = song.artist
+            renderFavorite(song)
             loader.load(song.coverUrl, coverView)
             // 模糊背景：异步取图。同步版 loadBitmap 内部 runBlocking 会把主线程
             // 卡在网络+解码上，切歌时造成明显卡顿甚至 ANR。
@@ -192,6 +200,13 @@ class PlayerActivity : AppCompatActivity() {
         btnPlay.setOnClickListener { repo.toggle() }
         btnNext.setOnClickListener { repo.nextManual() }
         btnPrev.setOnClickListener { repo.prevManual() }
+        btnFavorite.setOnClickListener {
+            val song = repo.currentSong.value ?: return@setOnClickListener
+            val added = favoriteStore.toggle(song)
+            renderFavorite(song)
+            Toast.makeText(this, if (added) "已添加到「我喜欢的音乐」" else "已从「我喜欢的音乐」移除", Toast.LENGTH_SHORT).show()
+        }
+
         btnDownload.setOnClickListener {
             val song = repo.currentSong.value ?: return@setOnClickListener
             lifecycleScope.launch {
@@ -216,6 +231,17 @@ class PlayerActivity : AppCompatActivity() {
             // 首页歌单进入：交给 SearchFragment 逻辑，这里简化提示
             Toast.makeText(this, "歌单: $keyword", Toast.LENGTH_SHORT).show()
         }
+    }
+
+
+    /** 播放页红心与默认歌单的收藏状态保持同步。 */
+    private fun renderFavorite(song: Song?) {
+        val favorite = song != null && favoriteStore.contains(song)
+        btnFavorite.setImageResource(if (favorite) R.drawable.ic_favorite else R.drawable.ic_favorite_border)
+        btnFavorite.imageTintList = ColorStateList.valueOf(
+            ContextCompat.getColor(this, if (favorite) R.color.accent_1 else R.color.text)
+        )
+        btnFavorite.contentDescription = if (favorite) "从我喜欢的音乐移除" else "添加到我喜欢的音乐"
     }
 
     override fun onStart() {
