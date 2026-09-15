@@ -327,6 +327,34 @@ def git_show_head(path):
         return None
 
 
+def git_head_blob(path):
+    """path 在 git HEAD 中的 blob 哈希；未入库 / git 不可用 → None。
+
+    与 `git rev-parse HEAD:<path>` 等价，用于证明「文件已在版本库基线内」。
+    """
+    try:
+        out = subprocess.run(["git", "rev-parse", "HEAD:" + path], cwd=REPO,
+                             capture_output=True, text=True, timeout=30)
+        return out.stdout.strip() if out.returncode == 0 else None
+    except Exception:
+        return None
+
+
+def git_worktree_blob(path):
+    """工作区文件按 git 规则算出的 blob 哈希；文件不存在 / git 不可用 → None。
+
+    注意：`git hash-object` 默认会施加与 `git add` 相同的换行转换（本仓库 core.autocrlf=true），
+    因此其结果可以与 HEAD 中的 blob 直接比较 —— 这正是「逐字节一致」的可靠判据。
+    """
+    try:
+        abs_path = os.path.join(REPO, path.replace("/", os.sep))
+        out = subprocess.run(["git", "hash-object", abs_path], cwd=REPO,
+                             capture_output=True, text=True, timeout=30)
+        return out.stdout.strip() if out.returncode == 0 else None
+    except Exception:
+        return None
+
+
 def gradle_props_machine_path_only(path):
     """android/gradle.properties 是否 *仅* 放行了 org.gradle.java.home 行的值变化。
 
@@ -946,9 +974,41 @@ _qac_required_funs = ["createPlaylist", "renamePlaylist", "deletePlaylist", "tog
 _qac_missing = [f for f in _qac_required_funs if ("fun " + f + "(") not in _store_code]
 check("C.13c 方法层「只增」：既有方法签名齐全 + 新增 coverUrlOf 存在（无签名级删除）",
       not _qac_missing, "缺失=%s" % _qac_missing)
-# PlaylistStore.kt 在 HEAD 中不存在（整份功能为未提交工作区）→ 无基线，显式降级
-check_skip("C.13d PlaylistStore.kt 「相对 HEAD 纯新增（无删除行）」",
-           "该文件不在 git HEAD（未跟踪新增），无基线可逐行比对 -> UNVERIFIED（见 C.13a/b/c 与 APK 字节码佐证）")
+# PlaylistStore.kt 曾长期是未跟踪新增（HEAD 里没有它，无基线可逐行比对），
+# 该断言技术上不可执行，故此前显式降级为 SKIP/UNVERIFIED 而非静默判 PASS。
+# 2026-09-15 的基线提交已把它纳入版本库（提交 bbd43cf），故在此升级为强断言。
+_qac_ps_rel = "android/app/src/main/java/com/soundtrack/music/data/PlaylistStore.kt"
+_qac_ps_head = git_head_blob(_qac_ps_rel)
+_qac_ps_work = git_worktree_blob(_qac_ps_rel)
+check("C.13d PlaylistStore.kt 已入库，且工作区与 HEAD 逐字节一致（blob 哈希相等）",
+      _qac_ps_head is not None and _qac_ps_work is not None and _qac_ps_head == _qac_ps_work,
+      "HEAD=%s 工作区=%s" % (_qac_ps_head, _qac_ps_work))
+
+# ---- C.23 基线存在性：本地歌单系统核心文件均已入库且与基线逐字节一致 ----
+# 价值：一旦有人改了这些文件却不提交，或提交后又产生本地改动，本条立刻报红。
+_C23_FILES = [
+    "android/app/src/main/java/com/soundtrack/music/data/PlaylistStore.kt",
+    "android/app/src/main/java/com/soundtrack/music/data/PlaylistModels.kt",
+    "android/app/src/main/java/com/soundtrack/music/model/SongKeys.kt",
+    "android/app/src/main/java/com/soundtrack/music/adapter/MyPlaylistAdapter.kt",
+    "android/app/src/main/java/com/soundtrack/music/adapter/PlaylistPickAdapter.kt",
+    "android/app/src/main/java/com/soundtrack/music/util/PlaylistNameDialog.kt",
+    "android/app/src/main/java/com/soundtrack/music/ui/MyPlaylistsActivity.kt",
+    "android/app/src/main/java/com/soundtrack/music/ui/MyPlaylistDetailActivity.kt",
+    "android/app/src/main/java/com/soundtrack/music/ui/AddToPlaylistSheet.kt",
+]
+_c23_bad = []
+for _p in _C23_FILES:
+    _h, _w = git_head_blob(_p), git_worktree_blob(_p)
+    if _h is None or _w is None or _h != _w:
+        _c23_bad.append("%s(HEAD=%s,work=%s)" % (_p.rsplit("/", 1)[-1], _h, _w))
+check("C.23 本地歌单系统核心文件已在 git 基线内且与工作区逐字节一致（%d 个）" % len(_C23_FILES),
+      not _c23_bad, "未入库或不一致=%s" % _c23_bad)
+
+# 可证伪：未入库的路径必须取不到 HEAD blob，否则 C.23 就是「永真断言」（比没有检查更糟）
+_c23_absent = "android/app/src/main/java/com/soundtrack/music/data/__no_such_file__.kt"
+check("C.23b 可证伪性：未入库路径取不到 HEAD blob（证明 C.23 不是永真断言）",
+      git_head_blob(_c23_absent) is None, "实际=%s" % git_head_blob(_c23_absent))
 
 # ---- C.14 MyPlaylistAdapter 契约（S3）----
 _mpa_raw = read_text(kpath("adapter/MyPlaylistAdapter.kt"))
