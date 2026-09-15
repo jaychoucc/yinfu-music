@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/bg">
+
+    <!-- 顶部 TopBar：返回 + 歌单名 + 歌曲数 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="8dp"
+        android:paddingEnd="16dp"
+        android:background="@color/panel">
+
+        <ImageButton
+            android:id="@+id/btn_back"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@drawable/ic_prev"
+            android:contentDescription="返回" />
+
+        <TextView
+            android:id="@+id/detail_title"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="4dp"
+            android:text="歌单"
+            android:textColor="@color/text"
+            android:textSize="17sp"
+            android:textStyle="bold"
+            android:maxLines="1"
+            android:ellipsize="end" />
+
+        <TextView
+            android:id="@+id/detail_count"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:text="0 首"
+            android:textColor="@color/text_2"
+            android:textSize="13sp"
+            android:maxLines="1" />
+    </LinearLayout>
+
+    <!-- 列表 + 空态叠放：空态居中显示，列表为空时隐藏 RecyclerView 让空态占满 -->
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/recycler_playlist_songs"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="@color/bg" />
+
+        <TextView
+            android:id="@+id/empty_hint"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:paddingStart="32dp"
+            android:paddingEnd="32dp"
+            android:gravity="center"
+            android:text="这个歌单还没有歌曲"
+            android:textColor="@color/text_3"
+            android:textSize="14sp"
+            android:visibility="gone" />
+    </FrameLayout>
+
+    <!-- 迷你播放器：高度必须显式写 66dp（理由同 activity_playlist_detail.xml 的注释） -->
+    <include
+        android:id="@+id/mini_player"
+        layout="@layout/layout_mini_player"
+        android:layout_width="match_parent"
+        android:layout_height="66dp" />
+</LinearLayout>

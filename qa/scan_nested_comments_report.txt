@@ -1,0 +1,7 @@
+=== Kotlin nested-comment scan ===
+root: C:\Users\b5311\WorkBuddy\2026-09-15-10-37-12\yinfu-music\android\app\src\main\java
+scanned .kt files: 108
+
+---------------------------------------
+problem files: 0 / 108
+RESULT: CLEAN (no nested/unclosed/mismatched block comments)

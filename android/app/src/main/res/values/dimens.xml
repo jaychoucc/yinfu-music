@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 播放页控制按钮行尺寸：默认档（可用宽度 < 360dp 的窄屏） -->
+    <dimen name="player_ctrl_btn_small">40dp</dimen>   <!-- 收藏 / 下载 -->
+    <dimen name="player_ctrl_btn_mid">48dp</dimen>     <!-- 上一首 / 下一首 -->
+    <dimen name="player_ctrl_btn_play">56dp</dimen>    <!-- 播放/暂停 -->
+    <dimen name="player_ctrl_row_margin_h">0dp</dimen> <!-- 按钮行左右外边距 -->
+</resources>

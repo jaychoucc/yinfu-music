@@ -15,6 +15,7 @@
 预期:全部 case PASS,exit 0;任何 FAIL 则 exit 1 + 红字提示。
 """
 
+import os
 import re
 import sys
 from dataclasses import dataclass
@@ -300,34 +301,28 @@ print("  [PASS] CASE 2 已验")
 # 问题 5: 最后搜索结果一定是能正常播放的
 print("\n[问题 5] probePlayable + candidates 收集(代码层面保证)")
 # 我们只验逻辑:probePlayable 在 Kotlin 里被调用,失败的 song 不入 candidates
-# 这是代码逻辑,不需要 Python 模拟。grep 自检。
-import subprocess
-grep_result = subprocess.run(
-    ["grep", "-c", "if (playable)",
-     "C:/Users/b5311/WorkBuddy/2026-09-10-11-29-51/yinfu-music/android/app/src/main/java/com/soundtrack/music/ui/SearchFragment.kt"],
-    capture_output=True, text=True
-)
-ok = int(grep_result.stdout.strip()) >= 1
-all_pass = all_pass and ok
-print(f"  [{'PASS' if ok else 'FAIL'}] SearchFragment.kt 保留 probePlayable 过滤(grep 命中数={grep_result.stdout.strip()})")
+# 这是代码逻辑,不需要 Python 模拟。纯 Python 读文件计数自检（不依赖外部 grep）。
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SF = os.path.join(REPO, "android", "app", "src", "main", "java",
+                  "com", "soundtrack", "music", "ui", "SearchFragment.kt")
+with open(SF, encoding="utf-8") as f:
+    sf_text = f.read()
 
-# grep 确认 adapter.add 已改为 candidates.add
-grep_add = subprocess.run(
-    ["grep", "-c", "synchronized(candidates) { candidates.add",
-     "C:/Users/b5311/WorkBuddy/2026-09-10-11-29-51/yinfu-music/android/app/src/main/java/com/soundtrack/music/ui/SearchFragment.kt"],
-    capture_output=True, text=True
-)
-ok = int(grep_add.stdout.strip()) >= 1
+# 确认保留 probePlayable 过滤
+hits_playable = sf_text.count("if (playable)")
+ok = hits_playable >= 1
+all_pass = all_pass and ok
+print(f"  [{'PASS' if ok else 'FAIL'}] SearchFragment.kt 保留 probePlayable 过滤(命中数={hits_playable})")
+
+# 确认 adapter.add 已改为 candidates.add
+hits_cand_add = sf_text.count("synchronized(candidates) { candidates.add")
+ok = hits_cand_add >= 1
 all_pass = all_pass and ok
 print(f"  [{'PASS' if ok else 'FAIL'}] 探测通过后走 candidates.add(不直接 add 到 adapter)")
 
-# grep 确认排序 + setData 已加
-grep_setdata = subprocess.run(
-    ["grep", "-c", "adapter.setData(sorted)",
-     "C:/Users/b5311/WorkBuddy/2026-09-10-11-29-51/yinfu-music/android/app/src/main/java/com/soundtrack/music/ui/SearchFragment.kt"],
-    capture_output=True, text=True
-)
-ok = int(grep_setdata.stdout.strip()) >= 1
+# 确认排序 + setData 已加
+hits_setdata = sf_text.count("adapter.setData(sorted)")
+ok = hits_setdata >= 1
 all_pass = all_pass and ok
 print(f"  [{'PASS' if ok else 'FAIL'}] 排序后一次性 adapter.setData(sorted)")
 

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 播放页控制按钮行尺寸：可用宽度 >= 360dp（正常手机） -->
+    <dimen name="player_ctrl_btn_small">44dp</dimen>
+    <dimen name="player_ctrl_btn_mid">52dp</dimen>
+    <dimen name="player_ctrl_btn_play">68dp</dimen>
+    <dimen name="player_ctrl_row_margin_h">0dp</dimen>
+</resources>

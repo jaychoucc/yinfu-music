@@ -41,6 +41,17 @@
             android:exported="false"
             android:screenOrientation="portrait" />
 
+        <!-- 本地歌单：我的歌单列表页 / 歌单详情页（与上面的远程歌单页互不影响） -->
+        <activity
+            android:name=".ui.MyPlaylistsActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
+
+        <activity
+            android:name=".ui.MyPlaylistDetailActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
+
         <service
             android:name=".player.PlayerService"
             android:exported="false"

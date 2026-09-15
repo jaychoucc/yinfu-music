@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- 本地歌单系统（2026-09-15）：默认歌单「我喜欢的音乐」+ 多张自建歌单 + 播放页红心收藏 + 条目展示解析后播放地址 + 缓存直链优先秒播 + 直链失效自动重解析回填
+  - 数据层：新增 `data/PlaylistStore.kt`（单例，`SharedPreferences("local_playlists")` + `org.json` 单 key 存整份 JSON，schema `version=1`）、`data/PlaylistModels.kt`、`model/SongKeys.kt`。采用**全局曲库 `songKey → Song 快照` + 歌单持有序 `songKey` 列表**布局：同一首歌在多张歌单只存一份元数据，直链回填「一次写入、全部歌单同时生效」；删除歌单后 `gcLibrary()` 回收不再被引用的条目
+  - 健壮性：损坏 JSON / 未知 schema 版本 → 静默降级为「仅默认歌单 + 空曲库」并自愈落盘，绝不崩溃；首次安装自动创建默认歌单（5.9 / 5.10 / AC-33）
+  - 默认歌单：内置、恒置顶、**不可删不可改名**（列表项隐藏入口 + `PlaylistStore.deletePlaylist/renamePlaylist` 防御性拒绝，双保险）
+  - 播放页（S1）：`btn_favorite` 补逻辑 —— 未收藏空心（新增 `ic_favorite_border`）/ 已收藏实心（既有 `ic_favorite`），点击在默认歌单增删并 Toast，切歌随 `currentSong` 实时刷新；无播放中歌曲时空心 + 置灰 + 点击不写入（5.11）；**长按红心**打开「加入歌单」选择器（不改 `activity_player.xml`、不移 `btn_favorite`、不加常驻按钮）
+  - 新增页面：「我的」页新增歌单入口（`fragment_mine.xml`，`btn_my_playlists`，`onResume` 刷新摘要）；我的歌单列表页 `MyPlaylistsActivity`（默认置顶 + 自建按创建时间倒序 + 新建/重命名/删除二次确认，改名删除用文字按钮）；歌单详情页 `MyPlaylistDetailActivity`（条目展示封面/歌名/歌手/音源中文名/**解析后播放地址**，地址行恒占一行、超长 `ellipsize=middle`、长按复制完整地址，空态区分默认/自建，挂迷你条）；「加入歌单」选择器 `AddToPlaylistSheet`（`BottomSheetDialogFragment`，多选差量一次性写入，行内新建后自动勾选，取消不写入）
+  - 播放内核：`PlayerRepository.resolvePlayableUrl` 加 `force` 参数（强制忽略缓存直链）；新增 `attemptRecoveryForCurrentSong()`（经 `mainHandler.post` 切出 ExoPlayer 回调栈、复用 `resolveToken` 校验、`recoveryAttemptedKey` 保证每轮播放最多重解析一次、失败**不自动跳歌**）；`onPlayerError` 末尾挂接恢复入口；新增 `onUrlRefreshed` 由 `SoundtrackApp` 一次性挂接为 `PlaylistStore.updatePlayUrl`
+  - 长按接入：搜索页 / 首页歌曲条目长按打开「加入歌单」（`SongAdapter` / `NewSongAdapter` 末尾新增可选 `onLongClick`，既有 3 处调用点零改动，`PlaylistDetailActivity` 完全未触碰）
+  - 约束遵守：**不新增任何第三方依赖**；全程 `findViewById`（`viewBinding = false`）；未改动 `build.gradle.kts` / `settings.gradle.kts` / `gradle.properties` / `ref/` / `ref_all/` / `web/`
+
 ### Fixed
 - 首页「推荐歌单 / 新歌速递 / 排行榜详情」歌曲仍播 30s 提前结束（C 方案：网易 `tracks[].fee` 字段 → metadata 级主音源路由；fee∈{1,4} 即 VIP/专辑独占，主音源从 `netease` 改为 `migu`，海糖网退到兜底链；fee∈{0,8} 或缺失仍走 `netease`，100% 向后兼容；`NeteaseMusicSource.isLikelyPreview` 试听探测保留为二道防线；实证：60 首真实推荐歌单曲目中 fee=1 (VIP) 占 19/60，全部命中 migu 接管，fee=0/8 合计 41/60 仍走 netease，A 方案 600 阈值的盲区彻底关闭）
 - 部分歌曲（典型如港台/粤语艺人「混账-周柏豪」）点歌后"无法解析"提前结束（fallback 过滤 bug + 跨源回退链路扩展）：

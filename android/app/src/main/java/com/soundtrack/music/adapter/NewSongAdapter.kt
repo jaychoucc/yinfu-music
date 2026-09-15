@@ -15,7 +15,9 @@ import com.soundtrack.music.util.MiniImageLoader
  */
 class NewSongAdapter(
     private val loader: MiniImageLoader,
-    private val onClick: (Song) -> Unit
+    private val onClick: (Song) -> Unit,
+    /** 长按条目回调（末尾可选参数，默认 null；未传时完全等同旧行为）。 */
+    private val onLongClick: ((Song) -> Unit)? = null
 ) : RecyclerView.Adapter<NewSongAdapter.VH>() {
 
     private val items = mutableListOf<Song>()
@@ -47,6 +49,11 @@ class NewSongAdapter(
             artist.text = song.artist
             loader.load(song.coverUrl, cover)
             itemView.setOnClickListener { onClick(song) }
+            // 仅在有长按回调时消费事件（返回 true）；无回调时返回 false，完全等同旧行为
+            itemView.setOnLongClickListener {
+                onLongClick?.invoke(song)
+                onLongClick != null
+            }
         }
     }
 }

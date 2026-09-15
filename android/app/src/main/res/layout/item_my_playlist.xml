@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="64dp"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:paddingHorizontal="16dp"
+    android:background="?attr/selectableItemBackground">
+
+    <ImageView
+        android:id="@+id/cover"
+        android:layout_width="44dp"
+        android:layout_height="44dp"
+        android:scaleType="centerCrop"
+        android:background="@drawable/bg_gradient_accent"
+        android:contentDescription="歌单封面" />
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:layout_marginStart="12dp"
+        android:layout_marginEnd="8dp">
+
+        <TextView
+            android:id="@+id/name"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="歌单名"
+            android:textColor="@color/text"
+            android:textSize="15sp"
+            android:maxLines="1"
+            android:ellipsize="end" />
+
+        <TextView
+            android:id="@+id/count"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:text="0 首"
+            android:textColor="@color/text_2"
+            android:textSize="12sp" />
+    </LinearLayout>
+
+    <!-- 重命名 / 删除用文字按钮：仓库无 ic_edit / ic_delete 图标，避免新增资产 -->
+    <TextView
+        android:id="@+id/btn_rename"
+        android:layout_width="wrap_content"
+        android:layout_height="36dp"
+        android:gravity="center"
+        android:paddingHorizontal="8dp"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:text="重命名"
+        android:textColor="@color/text_2"
+        android:textSize="13sp" />
+
+    <TextView
+        android:id="@+id/btn_delete"
+        android:layout_width="wrap_content"
+        android:layout_height="36dp"
+        android:layout_marginStart="4dp"
+        android:gravity="center"
+        android:paddingHorizontal="8dp"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:text="删除"
+        android:textColor="@color/red"
+        android:textSize="13sp" />
+</LinearLayout>

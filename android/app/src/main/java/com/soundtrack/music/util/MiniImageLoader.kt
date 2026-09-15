@@ -11,6 +11,8 @@ import okhttp3.Request
 import java.io.File
 import java.io.FileOutputStream
 import java.security.MessageDigest
+import java.util.Collections
+import java.util.WeakHashMap
 
 /**
  * 自实现简单图片加载：内存 LRU + 磁盘目录缓存，不使用 Glide。
@@ -23,9 +25,26 @@ class MiniImageLoader(context: Context) {
         override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount
     }
 
+    /**
+     * 每个 ImageView 当前「期望加载的 url」。
+     *
+     * 用于丢弃**过期**的异步结果：ViewHolder 被 RecyclerView 复用后，先前那次请求的 bitmap
+     * 若晚于新请求返回，会把旧图盖到新行上（列表快速滑动时表现为「串封面」）。
+     * 回调落地前比对本表即可把过期结果作废。
+     *
+     * 用 WeakHashMap 弱键：View 被回收后条目自动消失，不会滞留 Activity 的视图。
+     */
+    private val pendingUrl = Collections.synchronizedMap(WeakHashMap<ImageView, String>())
+
     fun load(url: String, view: ImageView, placeholderRes: Int? = null) {
         placeholderRes?.let { view.setImageResource(it) }
-        if (url.isBlank()) return
+        if (url.isBlank()) {
+            // 空 url = 撤销本 View 的期望；此前在途请求的结果到点后会被判为过期而丢弃
+            pendingUrl.remove(view)
+            return
+        }
+        // 登记本次期望（同一 View 反复 load 时以最后一次为准）
+        pendingUrl[view] = url
         val key = md5(url)
         memCache.get(key)?.let {
             view.setImageBitmap(it)
@@ -34,6 +53,8 @@ class MiniImageLoader(context: Context) {
         scope.launch {
             val bitmap = loadBitmap(key, url)
             withContext(Dispatchers.Main) {
+                // 过期守卫：本 View 在这期间已被复用 / 换了 url → 丢弃，绝不覆盖
+                if (pendingUrl[view] != url) return@withContext
                 bitmap?.let {
                     view.setImageBitmap(it)
                 }

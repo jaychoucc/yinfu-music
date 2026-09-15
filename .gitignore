@@ -23,6 +23,15 @@ listing.html
 lrc.txt
 seg.mp3
 sse4.txt
+qa/gradle_build.log
+
+# ---------- QA 一次性取证产物 ----------
+# `_` 前缀 = 临时中间输出（aapt/dexdump 转储、构建日志、mtime 清单等），体积大且一次性，不入库。
+# 正式报告（qa/_*_report.md 等 *.md）与可复跑的仿真/证伪脚本（qa/_*.py）仍然入库。
+qa/_*.txt
+qa/_*.log
+_*.txt
+_*.log
 
 # ---------- Python 编译/缓存 ----------
 __pycache__/

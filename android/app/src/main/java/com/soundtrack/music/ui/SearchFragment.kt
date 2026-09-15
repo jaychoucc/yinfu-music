@@ -10,6 +10,7 @@ import android.widget.EditText
 import android.widget.TextView
 import android.widget.Toast
 import androidx.fragment.app.Fragment
+import androidx.appcompat.widget.PopupMenu
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -17,6 +18,8 @@ import com.google.android.material.chip.Chip
 import com.google.android.material.chip.ChipGroup
 import com.soundtrack.music.R
 import com.soundtrack.music.adapter.SongAdapter
+import com.soundtrack.music.data.PlaylistModels
+import com.soundtrack.music.data.PlaylistStore
 import com.soundtrack.music.data.PrefsStore
 import com.soundtrack.music.download.DownloadManager
 import com.soundtrack.music.model.Song
@@ -58,7 +61,9 @@ class SearchFragment : Fragment() {
         recycler.layoutManager = LinearLayoutManager(requireContext())
         adapter = SongAdapter(loader,
             onClick = { song -> playSong(song) },
-            onDownload = { song -> downloadSong(song) }
+            onDownload = { song -> downloadSong(song) },
+            onLongClick = { song -> openAddToPlaylist(song) },
+            onMore = { song, anchor -> showSongMenu(song, anchor) }
         )
         recycler.adapter = adapter
 
@@ -309,5 +314,57 @@ class SearchFragment : Fragment() {
             val uri = DownloadManager(requireContext()).download(song)
             Toast.makeText(requireContext(), if (uri != null) "已下载" else "下载失败", Toast.LENGTH_SHORT).show()
         }
+    }
+
+    /** 长按搜索结果 → 打开「加入歌单」选择器（AC-15）。 */
+    private fun openAddToPlaylist(song: Song) {
+        AddToPlaylistSheet.newInstance(song)
+            .show(parentFragmentManager, "add_to_playlist")
+    }
+
+    /**
+     * 行尾「⋮」→ 弹出歌曲操作菜单：加入歌单 / 下载 / 收藏。
+     *
+     * 用 `androidx.appcompat.widget.PopupMenu`（非 `android.widget` 版），保证菜单主题与 AppCompat 一致。
+     * 回调只捕获 [song]（值语义），**不持有 ViewHolder / itemView 引用**，避免 RecyclerView 复用隐患；
+     * 菜单锚点用传入的 [anchor]（即被点击的行尾按钮）。
+     */
+    private fun showSongMenu(song: Song, anchor: View) {
+        val popup = PopupMenu(requireContext(), anchor)
+        popup.menu.add(0, MENU_ID_ADD_TO_PLAYLIST, 0, "加入歌单")
+        popup.menu.add(0, MENU_ID_DOWNLOAD, 1, "下载")
+        popup.menu.add(0, MENU_ID_FAVORITE, 2, "收藏")
+        popup.setOnMenuItemClickListener { item ->
+            when (item.itemId) {
+                MENU_ID_ADD_TO_PLAYLIST -> openAddToPlaylist(song)
+                MENU_ID_DOWNLOAD -> downloadSong(song)
+                MENU_ID_FAVORITE -> toggleFavoriteToDefault(song)
+            }
+            true
+        }
+        popup.show()
+    }
+
+    /**
+     * 在默认歌单（「我喜欢的音乐」）中增 / 删这首歌，并 Toast 提示结果。
+     * 文案与本地歌单系统的默认歌单收藏一致（"已加入我喜欢的音乐" / "已从我喜欢的音乐移除"），确保跨屏体验统一。
+     *
+     * 注：播放页红心自 2026-09-15 起改为「打开加入歌单面板」，不再直接 toggle，
+     * 故此处不再声称与播放页红心的行为一致。
+     */
+    private fun toggleFavoriteToDefault(song: Song) {
+        val added = PlaylistStore.get(requireContext())
+            .toggleIn(PlaylistModels.DEFAULT_PLAYLIST_ID, song)
+        Toast.makeText(
+            requireContext(),
+            if (added) "已加入我喜欢的音乐" else "已从我喜欢的音乐移除",
+            Toast.LENGTH_SHORT
+        ).show()
+    }
+
+    private companion object {
+        const val MENU_ID_ADD_TO_PLAYLIST = 1
+        const val MENU_ID_DOWNLOAD = 2
+        const val MENU_ID_FAVORITE = 3
     }
 }

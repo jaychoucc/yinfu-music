@@ -9,11 +9,12 @@ Request F QA 验脚本:试听守护升级 + 搜索卡顿修复
 4. SourceRegistry 超时 35s→10s(静态检查)
 5. SearchFragment CancellationException rethrow + isAdded 守卫(静态检查)
 """
-import json, urllib.request, urllib.parse, re, sys
+import json, os, urllib.request, urllib.parse, re, sys
 
-PY = r"C:\Users\b5311\.workbuddy\binaries\python\versions\3.13.12\python.exe"
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-PROJECT = r"C:\Users\b5311\WorkBuddy\2026-09-10-11-29-51\yinfu-music"
+# 仓库根由脚本自身位置推导（qa/ 的上一级），不依赖 CWD / 旧工作区。
+# 第 4 节在 os.chdir(PROJECT) 后以相对路径读源码，故必须在 chdir 前算好。
+PROJECT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 passed = 0
 failed = 0
@@ -26,6 +27,34 @@ def check(name, cond, detail=""):
     else:
         failed += 1
     print(f"  [{status}] {name}" + (f" — {detail}" if detail else ""))
+
+
+def _brace_block(txt, header_regex):
+    """抽出匹配 header_regex 的 `{ ... }` 体(含大括号);找不到返回 None。
+    用于把断言限定在特定分支体内,避免"只数总数"造成假阳性。"""
+    m = re.search(header_regex, txt)
+    if not m:
+        return None
+    start = txt.find("{", m.start())
+    if start < 0:
+        return None
+    depth = 0
+    for i in range(start, len(txt)):
+        c = txt[i]
+        if c == "{":
+            depth += 1
+        elif c == "}":
+            depth -= 1
+            if depth == 0:
+                return txt[start:i + 1]
+    return None
+
+
+def _strip_kotlin_comments(txt):
+    """剔除块注释与行注释,避免被 `//` 注掉的代码仍以子串计入断言(假阳性)。"""
+    txt = re.sub(r'/\*[\s\S]*?\*/', '', txt)
+    txt = re.sub(r'//[^\n]*', '', txt)
+    return txt
 
 
 # ============================================================
@@ -123,7 +152,6 @@ for a, b, expected, desc in am_cases:
 # 4. 静态检查:SourceRegistry 超时 10s + SearchFragment 修复
 # ============================================================
 print("\n=== 4. 静态检查:源码一致性 ===")
-import os
 os.chdir(PROJECT)
 
 # SourceRegistry 10s
@@ -140,7 +168,18 @@ check("SearchFragment catch CancellationException", "catch (e: CancellationExcep
 check("SearchFragment rethrow", "throw e" in sf)
 check("SearchFragment isAdded 守卫(requireContext 前)", "isAdded)" in sf)
 check("SearchFragment publishCandidates 函数", "private fun publishCandidates" in sf)
-check("SearchFragment 渐进发布(probe 通过即调用)", sf.count("publishCandidates(candidates, kw)") >= 2, "探测通过+收尾各一次")
+# 先剔除注释:否则被 `//` 注掉的调用仍会以子串形式计入,造成假阳性。
+_sf_code = _strip_kotlin_comments(sf)
+# 调用点计数:定义行是 `publishCandidates(candidates: List<...>)`,不含子串
+# `publishCandidates(candidates)`(定义处为 `candidates:` 而非 `candidates)`),
+# 故此计数天然只统计"调用点",不会把 L233 的定义算进去。
+_call_sites = _sf_code.count("publishCandidates(candidates)")
+check("SearchFragment 渐进发布(probe 通过即调用)", _call_sites >= 2, f"调用点={_call_sites}(探测通过+收尾各一次)")
+# "渐进"关键:if (playable) 分支体内确实有一次调用。只数总数不够——
+# 两处都落在收尾(分支外)也能凑够 2,必须锚定分支体。
+_playable_block = _brace_block(_sf_code, r'if \(playable\)\s*\{')
+_inside = _playable_block is not None and "publishCandidates(candidates)" in _playable_block
+check("SearchFragment 渐进发布落在 if (playable) 分支体内(真渐进)", _inside, "probe 通过即上屏")
 
 # PlayerRepository 全源守护
 with open("android/app/src/main/java/com/soundtrack/music/player/PlayerRepository.kt", encoding="utf-8") as f:

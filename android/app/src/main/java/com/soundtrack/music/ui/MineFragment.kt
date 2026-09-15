@@ -1,5 +1,6 @@
 package com.soundtrack.music.ui
 
+import android.content.Intent
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
@@ -14,6 +15,8 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.soundtrack.music.R
 import com.soundtrack.music.adapter.DownloadAdapter
+import com.soundtrack.music.data.PlaylistModels
+import com.soundtrack.music.data.PlaylistStore
 import com.soundtrack.music.data.PrefsStore
 import com.soundtrack.music.download.DownloadManager
 import com.soundtrack.music.source.BuiltinSources
@@ -47,6 +50,11 @@ class MineFragment : Fragment() {
             showSourceStatus()
         }
 
+        // 本地歌单入口：进入「我的歌单」列表页
+        view.findViewById<View>(R.id.btn_my_playlists).setOnClickListener {
+            startActivity(Intent(requireContext(), MyPlaylistsActivity::class.java))
+        }
+
         loadDownloads()
     }
 
@@ -54,6 +62,16 @@ class MineFragment : Fragment() {
         super.onResume()
         loadDownloads()
         view?.findViewById<TextView>(R.id.source_status_text)?.text = sourceStatusText()
+        // 从歌单页返回后刷新摘要（歌单数 / 默认歌单歌曲数）
+        view?.findViewById<TextView>(R.id.my_playlists_summary)?.text = playlistSummary()
+    }
+
+    /** 「我的歌单」摘要文案：共 N 张歌单 · 我喜欢的音乐 M 首。 */
+    private fun playlistSummary(): String {
+        val store = PlaylistStore.get(requireContext())
+        val total = store.playlists().size
+        val liked = store.songCount(PlaylistModels.DEFAULT_PLAYLIST_ID)
+        return "共 $total 张歌单 · 我喜欢的音乐 $liked 首"
     }
 
     private fun sourceStatusText(): String {

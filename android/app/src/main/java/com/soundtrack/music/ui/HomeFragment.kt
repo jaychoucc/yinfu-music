@@ -70,7 +70,11 @@ class HomeFragment : Fragment() {
         // Rail 2：新歌速递
         val newSongRail = view.findViewById<RecyclerView>(R.id.newsong_rail)
         newSongRail.layoutManager = LinearLayoutManager(requireContext(), RecyclerView.HORIZONTAL, false)
-        newSongAdapter = NewSongAdapter(loader) { song -> playSingle(song) }
+        newSongAdapter = NewSongAdapter(
+            loader,
+            { song -> playSingle(song) },
+            { song -> openAddToPlaylist(song) }
+        )
         newSongRail.adapter = newSongAdapter
 
         // Rail 3：排行榜
@@ -173,5 +177,11 @@ class HomeFragment : Fragment() {
     private fun playSingle(song: com.soundtrack.music.model.Song) {
         PlayerRepository.get(requireContext()).play(listOf(song), 0)
         startActivity(Intent(requireContext(), PlayerActivity::class.java))
+    }
+
+    /** 长按首页新歌 → 打开「加入歌单」选择器（AC-15）。 */
+    private fun openAddToPlaylist(song: com.soundtrack.music.model.Song) {
+        AddToPlaylistSheet.newInstance(song)
+            .show(parentFragmentManager, "add_to_playlist")
     }
 }

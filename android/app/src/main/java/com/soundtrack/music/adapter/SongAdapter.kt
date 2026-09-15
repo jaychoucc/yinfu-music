@@ -15,7 +15,20 @@ import com.soundtrack.music.util.MiniImageLoader
 class SongAdapter(
     private val loader: MiniImageLoader,
     private val onClick: (Song) -> Unit,
-    private val onDownload: ((Song) -> Unit)? = null
+    private val onDownload: ((Song) -> Unit)? = null,
+    /** 长按条目回调（末尾可选参数，默认 null；未传时完全等同旧行为）。 */
+    private val onLongClick: ((Song) -> Unit)? = null,
+    /**
+     * 行尾按钮回调（末尾可选参数，默认 null）。
+     *
+     * 行尾按钮的**图标、无障碍描述、点击行为**均由本回调是否传入在 `bind()` 内一并派生，
+     * 因此三者永远不会脱节：
+     *  - 传入 onMore → 显示「⋮」+ contentDescription「更多」+ 点击回调 onMore(song, 按钮自身)（供调用方弹 PopupMenu）；
+     *  - 未传 onMore（默认）→ 显示旧的「下载图标」+ contentDescription「下载」+ 点击直接下载，与旧行为完全等价。
+     *
+     * 第二参数是行尾按钮 View 本身，供调用方作为弹出菜单的锚点。
+     */
+    private val onMore: ((Song, View) -> Unit)? = null
 ) : RecyclerView.Adapter<SongAdapter.VH>() {
 
     private val items = mutableListOf<Song>()
@@ -76,7 +89,22 @@ class SongAdapter(
             duration.text = if (s.durationSec > 0) formatDuration(s.durationSec) else ""
             loader.load(s.coverUrl, cover)
             itemView.setOnClickListener { onClick(s) }
-            more.setOnClickListener { onDownload?.invoke(s) }
+            // 仅在有长按回调时消费事件（返回 true）；无回调时返回 false，完全等同旧行为
+            itemView.setOnLongClickListener {
+                onLongClick?.invoke(s)
+                onLongClick != null
+            }
+            // 行尾按钮的「图标」与「点击行为」由 onMore 是否传入派生，保证二者永不脱节：
+            // 传了 onMore → ⋮ + 弹出更多菜单；未传（如远程歌单页）→ 完全保持旧的「下载图标 + 点击直接下载」
+            if (onMore != null) {
+                more.setImageResource(R.drawable.ic_more_vert)
+                more.contentDescription = "更多"
+                more.setOnClickListener { v -> onMore.invoke(s, v) }
+            } else {
+                more.setImageResource(R.drawable.ic_download)
+                more.contentDescription = "下载"
+                more.setOnClickListener { onDownload?.invoke(s) }
+            }
         }
     }
 

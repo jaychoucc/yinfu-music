@@ -11,6 +11,7 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import com.soundtrack.music.model.Song
+import com.soundtrack.music.model.SongKeys
 import com.soundtrack.music.source.PreviewGuard
 import com.soundtrack.music.source.SourceResolver
 import kotlinx.coroutines.*
@@ -88,6 +89,20 @@ class PlayerRepository private constructor(context: Context) {
     private val _duration = MutableStateFlow(0L)
     val duration: StateFlow<Long> = _duration
 
+    /**
+     * 播放地址被**重新解析成功**时回调（第 1 参=歌曲，第 2 参=新地址）。
+     *
+     * 由 SoundtrackApp 一次性挂接为 `PlaylistStore.updatePlayUrl`，实现「直链失效后回填歌单条目」。
+     * 默认 null：未挂接时恢复路径退化为「仅多一次解析尝试」，行为与旧版完全一致（零副作用）。
+     */
+    var onUrlRefreshed: ((Song, String) -> Unit)? = null
+
+    /**
+     * 本「播放尝试」是否已重解析过（防重解析风暴）。
+     * [playAt] 开头复位为 null，语义为「每次用户主动点播/切歌是一次新的播放尝试」。
+     */
+    private var recoveryAttemptedKey: String? = null
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var positionJob: Job? = null
 
@@ -122,6 +137,8 @@ class PlayerRepository private constructor(context: Context) {
                 _loading.value = false
                 _error.value = "播放失败: ${error.errorCodeName}${error.message?.let { " · $it" } ?: ""}"
                 // 不自动跳歌；停在当前歌，等用户手动切。
+                // 直链失效自动恢复：必须切出 ExoPlayer 回调栈再执行，避免播放器重入
+                mainHandler.post { attemptRecoveryForCurrentSong() }
             }
         })
     }
@@ -197,6 +214,8 @@ class PlayerRepository private constructor(context: Context) {
         val token = ++resolveToken
 
         currentIndex = index
+        // 每次用户主动点播/切歌视为一次新的「播放尝试」：允许失效直链在本轮再重解析一次
+        recoveryAttemptedKey = null
         val song = _queue[index]
         _currentSong.value = song
         _error.value = null
@@ -247,6 +266,52 @@ class PlayerRepository private constructor(context: Context) {
     }
 
     /**
+     * 直链失效后的恢复入口：强制重解析一次 → 成功则回填 + 继续播放；失败则仅提示、不跳歌。
+     *
+     * ⚠️ 只能从主线程且**不在 ExoPlayer 回调栈内**调用（由 onPlayerError 里 mainHandler.post 触发）。
+     *
+     * 关键约束：
+     *  1. 每个「播放尝试」最多重解析一次（[recoveryAttemptedKey] 防风暴），用户重新点播才复位；
+     *  2. 复用 [resolveToken] 与正常切歌互斥，结果过期即丢弃，避免与切歌并发覆盖；
+     *  3. 完成后**不自动跳歌**，与既有 onPlayerError 语义一致。
+     */
+    private fun attemptRecoveryForCurrentSong() {
+        val song = _currentSong.value ?: return
+        val idx = currentIndex
+        if (idx !in _queue.indices) return
+
+        val key = SongKeys.of(song)
+        // 本「播放尝试」已试过一次 → 直接放弃，避免失效直链反复触发错误造成重解析风暴
+        if (recoveryAttemptedKey == key) return
+        recoveryAttemptedKey = key
+
+        _error.value = null
+        _loading.value = true // UI 呈现「重解析中」（复用现有"解析中"通道）
+        resolveJob?.cancel()
+        resolveJob = null
+        val token = ++resolveToken
+
+        resolveJob = scope.launch(Dispatchers.IO) {
+            val url = runCatching { resolvePlayableUrl(song, force = true) }.getOrNull()
+            withContext(Dispatchers.Main) {
+                // 已被新的切歌/重解析请求取代 → 丢弃本次结果
+                if (token != resolveToken || currentIndex != idx) return@withContext
+                _loading.value = false
+                if (!url.isNullOrBlank() && url.startsWith("http")) {
+                    // 1) 回填歌单条目（持久化，跨歌单同时生效）
+                    runCatching { onUrlRefreshed?.invoke(song, url) }
+                    failedInThisRound.clear()
+                    // 2) 用新地址继续播放
+                    setMediaAndPlay(url)
+                } else {
+                    // 3) 仍失败：给出明确提示，**不自动跳歌**（与既有原则一致）
+                    _error.value = "《${song.title}》播放地址已失效，重新解析失败"
+                }
+            }
+        }
+    }
+
+    /**
      * 解析可播放地址：先试当前音源，失败再用有限的几个主力音源按"同名歌"补搜。
      *
      * 旧实现会顺序遍历 registry 里的全部 57 个音源，每个 15 秒超时，
@@ -256,8 +321,12 @@ class PlayerRepository private constructor(context: Context) {
      * 导致 hasPlayUrl 永远为 false，每次播完/切回都要重解析一遍（15s 主源 + 12s 回退预算）。
      * 这里两个分支都回填。
      */
-    private suspend fun resolvePlayableUrl(song: Song): String? {
+    private suspend fun resolvePlayableUrl(song: Song, force: Boolean = false): String? {
         skippedPreviewInResolve = false
+        // 非强制时复用已缓存直链。既有 playAt 路径已在更外层短路（hasPlayUrl 直接 setMediaAndPlay），
+        // 此分支在正常路径下恒不命中；新增它是为了让 force 有明确语义、并为将来的调用口留白。
+        // 强制重解析（force=true）时忽略一切缓存，走一次完整解析 —— 这是"失效直链恢复"的关键。
+        if (!force && song.hasPlayUrl) return song.playUrl
         // 1) 当前音源
         val mainUrl = runCatching {
             withTimeoutOrNull(RESOLVE_TIMEOUT_MS) {

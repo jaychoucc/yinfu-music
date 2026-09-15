@@ -22,8 +22,11 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.soundtrack.music.R
 import com.soundtrack.music.adapter.LyricAdapter
+import com.soundtrack.music.data.PlaylistModels
+import com.soundtrack.music.data.PlaylistStore
 import com.soundtrack.music.download.DownloadManager
 import com.soundtrack.music.model.Song
+import com.soundtrack.music.model.SongKeys
 import com.soundtrack.music.player.LrcParser
 import com.soundtrack.music.player.PlayerRepository
 import com.soundtrack.music.source.BuiltinSources
@@ -47,6 +50,8 @@ class PlayerActivity : AppCompatActivity() {
     private lateinit var artistView: TextView
     private lateinit var coverView: ImageView
     private lateinit var bgView: ImageView
+    /** 播放页红心（布局既有控件，位置不动，仅补逻辑） */
+    private lateinit var btnFavorite: ImageButton
     private val handler = Handler(Looper.getMainLooper())
 
     /** 歌词只在切歌时解析一次；updateLyric 每 300ms 复用这份缓存（旧实现每次都重新 parse） */
@@ -84,6 +89,7 @@ class PlayerActivity : AppCompatActivity() {
         val btnNext = findViewById<ImageButton>(R.id.btn_next)
         val btnPrev = findViewById<ImageButton>(R.id.btn_prev)
         val btnDownload = findViewById<ImageButton>(R.id.btn_download)
+        btnFavorite = findViewById(R.id.btn_favorite)
         recyclerLyrics = findViewById(R.id.recycler_lyrics)
 
         recyclerLyrics.layoutManager = LinearLayoutManager(this)
@@ -108,6 +114,8 @@ class PlayerActivity : AppCompatActivity() {
         }.launchIn(lifecycleScope)
 
         repo.currentSong.onEach { song ->
+            // 红心随当前歌实时刷新（AC-6）；无播放中歌曲时下面 refreshFavorite 会置灰
+            refreshFavorite(song)
             if (song == null) {
                 // 队列被清空（迷你条关闭按钮）或从未播放：复位 UI，
                 // 否则会一直停留在上一首的标题/封面/歌词上，看着像"卡住了"。
@@ -200,6 +208,12 @@ class PlayerActivity : AppCompatActivity() {
             }
         }
 
+        // 红心：点击打开「加入歌单」面板（首项即「我喜欢的音乐」，勾选/取消即收藏/取消收藏）；
+        // 红心图标仍反映"当前歌是否在「我喜欢的音乐」中"（见 refreshFavorite）。
+        btnFavorite.setOnClickListener { openAddToPlaylist() }
+        // 初始同步一次（onEach 也会补，但二者幂等）
+        refreshFavorite(repo.currentSong.value)
+
         seekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {}
             override fun onStartTrackingTouch(seekBar: SeekBar?) {}
@@ -216,6 +230,41 @@ class PlayerActivity : AppCompatActivity() {
             // 首页歌单进入：交给 SearchFragment 逻辑，这里简化提示
             Toast.makeText(this, "歌单: $keyword", Toast.LENGTH_SHORT).show()
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // 从「加入歌单」选择器返回后，重新同步红心状态
+        refreshFavorite(repo.currentSong.value)
+    }
+
+    /** 按当前歌是否在「我喜欢的音乐」中切换红心图标；无播放中歌曲时空心 + 置灰 + 点击无效（5.11）。 */
+    private fun refreshFavorite(song: Song?) {
+        if (song == null) {
+            btnFavorite.setImageResource(R.drawable.ic_favorite_border)
+            btnFavorite.alpha = 0.4f
+            btnFavorite.isEnabled = false
+            return
+        }
+        btnFavorite.isEnabled = true
+        btnFavorite.alpha = 1.0f
+        val contains = PlaylistStore.get(this)
+            .containsIn(PlaylistModels.DEFAULT_PLAYLIST_ID, SongKeys.of(song))
+        btnFavorite.setImageResource(
+            if (contains) R.drawable.ic_favorite else R.drawable.ic_favorite_border
+        )
+    }
+
+    /** 红心点击：打开「加入歌单」选择器（红心图标仍反映"是否在「我喜欢的音乐」中"；不改布局、不加常驻按钮）。 */
+    private fun openAddToPlaylist() {
+        val song = repo.currentSong.value ?: return
+        AddToPlaylistSheet.newInstance(song).apply {
+            setOnChanged {
+                refreshFavorite(repo.currentSong.value)
+                // 确认后可能只加了自建歌单，界面上没有其他反馈，补一条轻提示
+                Toast.makeText(this@PlayerActivity, "已更新歌单", Toast.LENGTH_SHORT).show()
+            }
+        }.show(supportFragmentManager, "add_to_playlist")
     }
 
     override fun onStart() {

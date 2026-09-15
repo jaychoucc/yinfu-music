@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 播放页控制按钮行左右外边距上限：按「窗口可用宽度」分档（随分屏/多窗口变化）。
+         仅定义边距，不定义按钮尺寸——窗口宽 >= 600dp 时按钮尺寸由 values-w360dp 命中给出 44/52/68。 -->
+    <dimen name="player_ctrl_row_margin_h">120dp</dimen>
+</resources>
