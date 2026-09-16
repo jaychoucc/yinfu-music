@@ -1,5 +1,6 @@
 package com.soundtrack.music.ui
 
+import android.app.AlertDialog
 import android.content.Intent
 import android.os.Bundle
 import android.view.LayoutInflater
@@ -18,6 +19,7 @@ import com.google.android.material.chip.Chip
 import com.google.android.material.chip.ChipGroup
 import com.soundtrack.music.R
 import com.soundtrack.music.adapter.SongAdapter
+import com.soundtrack.music.adapter.SearchHistoryAdapter
 import com.soundtrack.music.data.PlaylistModels
 import com.soundtrack.music.data.PlaylistStore
 import com.soundtrack.music.data.PrefsStore
@@ -39,6 +41,9 @@ class SearchFragment : Fragment() {
     private lateinit var prefs: PrefsStore
     private lateinit var emptyText: TextView
     private lateinit var sourceChips: ChipGroup
+    private lateinit var input: EditText
+    private lateinit var historyAdapter: SearchHistoryAdapter
+    private lateinit var historyBlock: View
     private var searchJob: Job? = null
 
     /**
@@ -70,12 +75,51 @@ class SearchFragment : Fragment() {
         sourceChips = view.findViewById(R.id.source_chips)
         setupSourceChips()
 
-        val input = view.findViewById<EditText>(R.id.search_input)
+        input = view.findViewById(R.id.search_input)
         input.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_SEARCH) {
                 performSearch(input.text.toString())
                 true
             } else false
+        }
+
+        // 搜索历史区块：空态时展示最近搜过的词，搜索中 / 有结果时隐藏
+        historyBlock = view.findViewById(R.id.history_block)
+        historyAdapter = SearchHistoryAdapter(
+            onClick = { keyword ->
+                // 点历史词条 = 填进输入框并直接搜索（addHistory 已在 performSearch 内调，不重复）
+                input.setText(keyword)
+                input.setSelection(keyword.length)
+                performSearch(keyword)
+            },
+            onDelete = { keyword ->
+                prefs.removeHistory(keyword)
+                refreshHistory()
+            }
+        )
+        val historyRecycler = view.findViewById<RecyclerView>(R.id.recycler_history)
+        historyRecycler.layoutManager = LinearLayoutManager(requireContext())
+        historyRecycler.adapter = historyAdapter
+        historyRecycler.setHasFixedSize(false)
+
+        view.findViewById<TextView>(R.id.btn_clear_history).setOnClickListener {
+            if (!isAdded) return@setOnClickListener
+            AlertDialog.Builder(requireContext())
+                .setMessage("清空全部搜索历史？")
+                .setPositiveButton("确定") { _, _ ->
+                    prefs.clearHistory()
+                    refreshHistory()
+                }
+                .setNegativeButton("取消", null)
+                .show()
+        }
+
+        // 首次进入页面：没有搜索结果时展示历史（有历史才显示区块）
+        refreshHistory()
+        // 有历史区块展示时，隐藏默认的"输入关键词开始搜索"空态文案，避免同屏冗余；
+        // 搜索流程自己的 emptyText 文案（搜索中/未找到结果/失败）不在这里动
+        if (historyBlock.visibility == View.VISIBLE) {
+            emptyText.visibility = View.GONE
         }
     }
 
@@ -127,6 +171,32 @@ class SearchFragment : Fragment() {
         super.onResume()
         // 从音源管理页返回后刷新 chips
         setupSourceChips()
+        // 页面恢复时若没有搜索结果（没搜过 / 结果已清），重新展示历史
+        if (adapter.itemCount == 0) {
+            refreshHistory()
+        }
+    }
+
+    /**
+     * 刷新历史区块：读 PrefsStore，空历史隐藏整个区块，非空则显示并灌入列表。
+     * 调用点：页面初始化、onResume 空态、清空确认后、删单条后。
+     */
+    private fun refreshHistory() {
+        val history = prefs.getHistory()
+        if (history.isEmpty()) {
+            hideHistory()
+        } else {
+            historyAdapter.submitList(history)
+            showHistory()
+        }
+    }
+
+    private fun showHistory() {
+        historyBlock.visibility = View.VISIBLE
+    }
+
+    private fun hideHistory() {
+        historyBlock.visibility = View.GONE
     }
 
     /**
@@ -151,6 +221,8 @@ class SearchFragment : Fragment() {
         adapter.clear()
         emptyText.text = "搜索中…"
         emptyText.visibility = View.VISIBLE
+        // 搜索开始：隐藏历史区块，避免遮挡搜索中状态和结果
+        hideHistory()
 
         // 搜索仅跑**已适配**的源（手机端本地，不依赖任何外部服务）
         val allActive = prefs.activeSources.toList().ifEmpty { listOf("migu") }
@@ -212,6 +284,10 @@ class SearchFragment : Fragment() {
                     else -> "未找到结果（夸克网盘/需登录的源已自动过滤）"
                 }
                 emptyText.visibility = if (adapter.itemCount == 0) View.VISIBLE else View.GONE
+                // 无结果（搜索正常结束）也重新显示历史，让用户能点历史词条换词重试
+                if (adapter.itemCount == 0) {
+                    refreshHistory()
+                }
             } catch (e: CancellationException) {
                 // 正常取消（新一轮搜索 / 退出页面），不是失败，不走错误 UI。
                 // 上一轮用 catch(Exception) 吞掉了它，随后在已 detach 的 Fragment 上调
@@ -222,6 +298,12 @@ class SearchFragment : Fragment() {
                     Toast.makeText(requireContext(), "搜索失败：${e.message}", Toast.LENGTH_SHORT).show()
                     emptyText.text = "搜索失败"
                     emptyText.visibility = View.VISIBLE
+                    // 失败且没有任何结果上屏时才重新显示历史；
+                    // 若中途已有部分结果上屏（searchAll 抛异常前 publishCandidates 跑过），
+                    // 历史必须保持隐藏，不能遮挡结果列表
+                    if (adapter.itemCount == 0) {
+                        refreshHistory()
+                    }
                 }
             }
         }

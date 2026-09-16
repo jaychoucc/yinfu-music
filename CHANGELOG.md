@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- 搜索历史（2026-09-16）：搜索页空态展示最近搜过的关键词（≤ 20 条，最近在前），点击词条直接回填并搜索，每条右侧 ✕ 删单条，顶部「清空」一键全删（带二次确认）
+  - 数据层 `data/PrefsStore.kt`：修复既有**无序 bug** —— 旧实现 `putStringSet/getStringSet` 存取，`getStringSet` 返回 `HashSet` 无序，「最近在前」根本不成立；改为 `\n` 分隔的单一字符串保序存取。新增 `removeHistory(keyword)` 删单条；`addHistory` 去重置顶 + 空词过滤 + 内部换行替换为空格（剪贴板粘贴含换行文本会让 `\n` 分隔符切分错乱）
+  - UI：`fragment_search.xml` 在源选择器与结果列表之间插入 `history_block`（标题「搜索历史」+「清空」按钮 + `recycler_history`，默认 GONE）；新建 `item_search_history.xml`（整行水波纹可点 + 右侧 `ic_close` 24dp）；新建 `adapter/SearchHistoryAdapter.kt`（`ListAdapter` + `DiffUtil` 局部刷新，零新依赖）
+  - 显隐时机：首屏空态 / onResume 空态显示；`performSearch` 开始即隐藏；**搜索无结果（成功/失败分支）且无任何结果上屏时重新显示**（有结果时全程保持隐藏，不遮挡结果列表）；历史为空时整个区块隐藏
+  - 交互：点词条 → 填入输入框 + 光标移末尾 + 发起搜索（`addHistory` 由 `performSearch` 统一调用，不重复）；✕ 独立 `OnClickListener` 不冒泡到整行；「清空」弹 `AlertDialog` 二次确认；首屏有历史时隐藏默认空态文案避免同屏冗余
+  - 生命周期：所有 `requireContext()` 前加 `isAdded` 守护；`CancellationException` 正确 rethrow
+  - 约束遵守：不新增任何第三方依赖；全程 `findViewById`；未改动 `build.gradle.kts` / `settings.gradle.kts` / `gradle.properties` / `AndroidManifest.xml` / `ref/` / `ref_all/` / `web/` / `docs/` / `qa/`
 - 本地歌单系统（2026-09-15）：默认歌单「我喜欢的音乐」+ 多张自建歌单 + 播放页红心收藏 + 条目展示解析后播放地址 + 缓存直链优先秒播 + 直链失效自动重解析回填
   - 数据层：新增 `data/PlaylistStore.kt`（单例，`SharedPreferences("local_playlists")` + `org.json` 单 key 存整份 JSON，schema `version=1`）、`data/PlaylistModels.kt`、`model/SongKeys.kt`。采用**全局曲库 `songKey → Song 快照` + 歌单持有序 `songKey` 列表**布局：同一首歌在多张歌单只存一份元数据，直链回填「一次写入、全部歌单同时生效」；删除歌单后 `gcLibrary()` 回收不再被引用的条目
   - 健壮性：损坏 JSON / 未知 schema 版本 → 静默降级为「仅默认歌单 + 空曲库」并自愈落盘，绝不崩溃；首次安装自动创建默认歌单（5.9 / 5.10 / AC-33）
