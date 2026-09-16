@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 交互：点词条 → 填入输入框 + 光标移末尾 + 发起搜索（`addHistory` 由 `performSearch` 统一调用，不重复）；✕ 独立 `OnClickListener` 不冒泡到整行；「清空」弹 `AlertDialog` 二次确认；首屏有历史时隐藏默认空态文案避免同屏冗余
   - 生命周期：所有 `requireContext()` 前加 `isAdded` 守护；`CancellationException` 正确 rethrow
   - 约束遵守：不新增任何第三方依赖；全程 `findViewById`；未改动 `build.gradle.kts` / `settings.gradle.kts` / `gradle.properties` / `AndroidManifest.xml` / `ref/` / `ref_all/` / `web/` / `docs/` / `qa/`
+  - 真机验证（2026-09-17，小米 24129PN74C）：`yinfu-music-1.0.0-20260916.2339.apk` 全新安装，9 场景全 PASS —— 空历史隐藏 / 历史渲染序与 prefs 一致 / 点词条回填+搜索+隐藏 / 点非首位词去重置顶 / ✕ 删单条（UI+prefs 同步）/ 清空二次确认 / 取消保留 / 确定清空（键移除）/ 全程无崩溃。详见 `qa/search_history_report.md` 真机实测节
 - 本地歌单系统（2026-09-15）：默认歌单「我喜欢的音乐」+ 多张自建歌单 + 播放页红心收藏 + 条目展示解析后播放地址 + 缓存直链优先秒播 + 直链失效自动重解析回填
   - 数据层：新增 `data/PlaylistStore.kt`（单例，`SharedPreferences("local_playlists")` + `org.json` 单 key 存整份 JSON，schema `version=1`）、`data/PlaylistModels.kt`、`model/SongKeys.kt`。采用**全局曲库 `songKey → Song 快照` + 歌单持有序 `songKey` 列表**布局：同一首歌在多张歌单只存一份元数据，直链回填「一次写入、全部歌单同时生效」；删除歌单后 `gcLibrary()` 回收不再被引用的条目
   - 健壮性：损坏 JSON / 未知 schema 版本 → 静默降级为「仅默认歌单 + 空曲库」并自愈落盘，绝不崩溃；首次安装自动创建默认歌单（5.9 / 5.10 / AC-33）
