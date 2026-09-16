@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- 播放器 UI 优化（2026-09-17）：播放模式切换 + 定时关闭 + 全屏可拖动歌词
+  - 播放模式：`PlayerRepository` 新增 `enum PlayMode { LIST（列表播放）/ SINGLE（单曲循环）/ SHUFFLE（随机播放）}`，`cyclePlayMode()` 按 LIST→SINGLE→SHUFFLE→LIST 循环并持久化（`play_mode`）；`next()` 重写 —— SINGLE 为 `seekTo(0)+replay`（并从本轮已播集合移除当前曲，避免随机池污染）、SHUFFLE 从「未失败 + 未在本轮播过」候选中随机，全部播完才清池重洗；StateFlow 驱动按钮图标（`ic_repeat`/`ic_repeat_one`/`ic_shuffle`）与高亮色切换；`restoreFromPrefs` 恢复模式偏好
+  - 定时关闭：`setSleepTimer(minutes)`（15/30/45/60 可选，持久化 `sleep_end_ms`）；位置轮询线程检测到点 → 自动 `cancelSleepTimer()` + `player.pause()` + 错误流提示「定时关闭已生效，已暂停播放」；未到点的剩余时长重启后仍生效（过期则丢弃）；按钮图标 `ic_timer`，已定时时高亮 + 对话框提供「取消定时」
+  - 全屏歌词：普通播放页点击歌词区切换到全屏歌词层（`fullscreen_lyrics`，背景虚化专辑封面 + 200ms alpha 渐显），顶栏返回/标题/歌手、居中歌词列表、底部精简控制行（模式/上一首/播放/下一首/定时），后退键先退全屏；**两套歌词列表各自持有独立 `LyricAdapter` 实例**（共用同一份 `lyricLines` 数据），修复同一个 adapter 绑两个 RecyclerView 导致小屏歌词不再刷新的 bug；全屏歌词可随意拖动 —— 拖动中关自动滚动，停下 3 秒后恢复跟随
+- 网易云歌单导入系统（2026-09-17）：按歌单链接导入，曲名+歌手+时长全音源最优匹配，未匹配进「导入失败歌曲」内置歌单
+  - 入口：「我的」→ 我的歌单页顶部「导入网易云歌单」按钮 → 粘贴链接或纯 id（正则提取 `id=\d+`）→ 不可取消的进度对话框（`x/y · 正在匹配《title》`，「取消」直接 cancel 协程）
+  - 解析：`NeteaseMusicSource.fetchPlaylist` **POST `/api/v6/playlist/detail` 优先**（根 key `playlist`，tracks 含完整 ar/al/dt），GET `/api/playlist/detail` 兜底（根 key `result`，未登录时 tracks 精简）；按导入歌单名在本地新建同名歌单
+  - 匹配引擎 `import_/PlaylistImporter.kt`：两级 `Semaphore`（4 首/曲并发、8 源/曲）、单源 8s + 单曲 30s 超时；评分 = 曲名（精确 100 / 包含 60 / 否则淘汰）+ 歌手（全中 +20 / 部分 +10 / 缺失 -30）+ 时长（≤3s +15 / ≤8s +8 / ≤20s 0 / >20s 或 0 为 -10）+ 音质（无损 +3 / 高品 +2 / 标准 +1），**阈值 ≥80** 视为命中；曲名归一化（去括号后缀）与多歌手拆分提升召回
+  - 失败处理：未匹配曲目（标题/歌手/时长/来源歌单）写入新建歌单的 `importMisses`，并汇总到内置「导入失败歌曲」歌单；该歌单详情页用 `ImportMissAdapter` 展示失败列表，**点击歌名直接跳搜索页并以曲名发起搜索**（顺带写入搜索历史），长按可移除单条
+  - 联动：`MainActivity` 接收 `EXTRA_SEARCH_KEYWORD`（`CLEAR_TOP|SINGLE_TOP`）自动切到搜索 tab 并回填关键词；`SearchFragment` 新增 `newInstance(keyword)` / `searchKeyword(kw)`
+  - 约束遵守：不新增任何第三方依赖；新增文件 `ImportMissAdapter.kt` / `PlaylistImporter.kt` / `item_import_miss.xml` / `ic_import.xml` / `ic_repeat.xml` / `ic_repeat_one.xml` / `ic_shuffle.xml` / `ic_timer.xml`
 - 搜索历史（2026-09-16）：搜索页空态展示最近搜过的关键词（≤ 20 条，最近在前），点击词条直接回填并搜索，每条右侧 ✕ 删单条，顶部「清空」一键全删（带二次确认）
   - 数据层 `data/PrefsStore.kt`：修复既有**无序 bug** —— 旧实现 `putStringSet/getStringSet` 存取，`getStringSet` 返回 `HashSet` 无序，「最近在前」根本不成立；改为 `\n` 分隔的单一字符串保序存取。新增 `removeHistory(keyword)` 删单条；`addHistory` 去重置顶 + 空词过滤 + 内部换行替换为空格（剪贴板粘贴含换行文本会让 `\n` 分隔符切分错乱）
   - UI：`fragment_search.xml` 在源选择器与结果列表之间插入 `history_block`（标题「搜索历史」+「清空」按钮 + `recycler_history`，默认 GONE）；新建 `item_search_history.xml`（整行水波纹可点 + 右侧 `ic_close` 24dp）；新建 `adapter/SearchHistoryAdapter.kt`（`ListAdapter` + `DiffUtil` 局部刷新，零新依赖）

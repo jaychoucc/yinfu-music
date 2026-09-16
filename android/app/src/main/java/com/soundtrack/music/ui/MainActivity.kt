@@ -1,6 +1,7 @@
 package com.soundtrack.music.ui
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -9,6 +10,7 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.soundtrack.music.R
+import com.soundtrack.music.data.PlaylistModels
 
 class MainActivity : AppCompatActivity() {
 
@@ -38,8 +40,27 @@ class MainActivity : AppCompatActivity() {
             true
         }
 
-        if (savedInstanceState == null) {
+        // 从「导入失败歌曲」详情页跳来：切到搜索 Tab 并把关键词带给 SearchFragment
+        val searchKeyword = intent?.getStringExtra(PlaylistModels.EXTRA_SEARCH_KEYWORD)
+        if (!searchKeyword.isNullOrBlank()) {
+            bottomNav.selectedItemId = R.id.nav_search
+            showFragment(SearchFragment.newInstance(searchKeyword))
+        } else if (savedInstanceState == null) {
             showFragment(HomeFragment())
+        }
+    }
+
+    /**
+     * 复用已存在的 MainActivity 实例（FLAG_ACTIVITY_SINGLE_TOP）时走这里。
+     * 同样切到搜索 Tab 并带关键词。
+     */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        val keyword = intent.getStringExtra(PlaylistModels.EXTRA_SEARCH_KEYWORD)
+        if (!keyword.isNullOrBlank()) {
+            findViewById<BottomNavigationView>(R.id.bottom_nav).selectedItemId = R.id.nav_search
+            showFragment(SearchFragment.newInstance(keyword))
         }
     }
 

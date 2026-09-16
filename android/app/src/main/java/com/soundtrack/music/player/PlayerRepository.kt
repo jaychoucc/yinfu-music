@@ -20,6 +20,14 @@ import kotlinx.coroutines.flow.StateFlow
 import org.json.JSONArray
 import org.json.JSONObject
 
+/**
+ * 播放模式。
+ * - [LIST]：列表循环（默认），按队列顺序播放，队尾接回队首。
+ * - [SINGLE]：单曲循环，一首歌结束后回到开头重播。
+ * - [SHUFFLE]：随机播放，从「本轮还没播过」的歌里随机选下一首。
+ */
+enum class PlayMode { LIST, SINGLE, SHUFFLE }
+
 class PlayerRepository private constructor(context: Context) {
     private val appContext = context.applicationContext
     private val prefs = appContext.getSharedPreferences("player_repo", Context.MODE_PRIVATE)
@@ -57,7 +65,7 @@ class PlayerRepository private constructor(context: Context) {
     private val playedInThisRound = linkedSetOf<Int>()
 
     /**
-     * 当前正在进行的播放地址解析任务。
+     * 正在进行的播放地址解析任务。
      * 旧实现每次切歌都新起一个协程且不取消旧的，多个协程并发跑，
      * 先完成的旧结果会覆盖后点的新歌 —— 表现为「切了没反应 / 要暂停再切才好」。
      */
@@ -88,6 +96,18 @@ class PlayerRepository private constructor(context: Context) {
 
     private val _duration = MutableStateFlow(0L)
     val duration: StateFlow<Long> = _duration
+
+    /** 播放模式，同一份 prefs 持久化（key = "play_mode"，存枚举名），restoreFromPrefs 恢复 */
+    private val _playMode = MutableStateFlow(PlayMode.LIST)
+    val playMode: StateFlow<PlayMode> = _playMode
+
+    /**
+     * 定时关闭的截止时间戳（ms）。0 表示未设置。
+     * UI 订阅它刷新按钮激活态；到点由 startPositionLoop 检测并暂停。
+     * prefs key = "sleep_end_ms"，Long，0 / 不存在 / 已过期 = 无定时。
+     */
+    private val _sleepEndMs = MutableStateFlow(0L)
+    val sleepEndMs: StateFlow<Long> = _sleepEndMs
 
     /**
      * 播放地址被**重新解析成功**时回调（第 1 参=歌曲，第 2 参=新地址）。
@@ -467,21 +487,91 @@ class PlayerRepository private constructor(context: Context) {
     }
 
     /**
-     * 自然播放结束时才调用：切下一首（解析失败不在这里处理）。
+     * 自然播放结束时才调用：按播放模式决定下一步（解析失败不在这里处理）。
      *
      * ⚠️ 只能从主线程且不在 ExoPlayer 回调栈内调用 —— onPlaybackStateChanged 里已 post 出去。
      */
     fun next() {
         if (_queue.isEmpty()) return
+        // 这句对 SHUFFLE / LIST 依然要执行：记录本轮已播完的索引
         if (currentIndex in _queue.indices) playedInThisRound.add(currentIndex)
-        val skip = failedInThisRound + playedInThisRound
-        val nextIdx = findNextIndex(skip)
-        if (nextIdx < 0) {
-            // 单曲队列播完、或所有候选都试过：停下来并暂停，禁止自转
-            stopAtQueueEnd()
+
+        when (_playMode.value) {
+            /**
+             * 单曲循环：不切歌，回到开头继续播放。
+             * 注意：开头那句 playedInThisRound.add(currentIndex) 会让 findNextIndex
+             * 把当前歌跳过、进而触发 stopAtQueueEnd —— 单曲循环要的是无限重播当前歌，
+             * 所以把当前歌从已播集合里移除，不让它累积导致停下。
+             */
+            PlayMode.SINGLE -> {
+                playedInThisRound.remove(currentIndex)
+                runCatching {
+                    player.seekTo(0L)
+                    player.play()
+                }
+            }
+            /**
+             * 随机播放：候选 = 队列中「未失败且本轮未播过」的索引；
+             * 全部播过则清空 playedInThisRound 重新随机，保证随机模式能一直播下去。
+             */
+            PlayMode.SHUFFLE -> {
+                val skip = failedInThisRound + playedInThisRound
+                val candidates = _queue.indices.filter { it !in skip }
+                val nextIdx = if (candidates.isNotEmpty()) {
+                    candidates.random()
+                } else {
+                    playedInThisRound.clear()
+                    val fresh = _queue.indices.filter { it !in failedInThisRound }
+                    if (fresh.isEmpty()) {
+                        stopAtQueueEnd()
+                        return
+                    }
+                    fresh.random()
+                }
+                playAt(nextIdx)
+            }
+            /** 列表循环（默认）：保持既有逻辑，顺序找下一个未跳过的索引，队尾接回队首 */
+            PlayMode.LIST -> {
+                val skip = failedInThisRound + playedInThisRound
+                val nextIdx = findNextIndex(skip)
+                if (nextIdx < 0) {
+                    // 单曲队列播完、或所有候选都试过：停下来并暂停，禁止自转
+                    stopAtQueueEnd()
+                    return
+                }
+                playAt(nextIdx)
+            }
+        }
+    }
+
+    /** 循环切换播放模式：LIST → SINGLE → SHUFFLE → LIST，并持久化。 */
+    fun cyclePlayMode() {
+        _playMode.value = when (_playMode.value) {
+            PlayMode.LIST -> PlayMode.SINGLE
+            PlayMode.SINGLE -> PlayMode.SHUFFLE
+            PlayMode.SHUFFLE -> PlayMode.LIST
+        }
+        prefs.edit().putString("play_mode", _playMode.value.name).apply()
+    }
+
+    /**
+     * 设置定时关闭：minutes 分钟后自动暂停。
+     * 刻意只 pause 不 stopPlayback —— 迷你条还要能点播放继续。
+     */
+    fun setSleepTimer(minutes: Int) {
+        if (minutes <= 0) {
+            cancelSleepTimer()
             return
         }
-        playAt(nextIdx)
+        val end = System.currentTimeMillis() + minutes * 60_000L
+        _sleepEndMs.value = end
+        prefs.edit().putLong("sleep_end_ms", end).apply()
+    }
+
+    /** 取消定时关闭。 */
+    fun cancelSleepTimer() {
+        _sleepEndMs.value = 0L
+        prefs.edit().putLong("sleep_end_ms", 0L).apply()
     }
 
     /** 用户手动点下一首：清掉失败与已播标记，允许重新尝试并循环回到开头 */
@@ -548,6 +638,14 @@ class PlayerRepository private constructor(context: Context) {
                 // 这里持续同步，避免进度条因 duration=0 而失准
                 val d = runCatching { player.duration }.getOrDefault(C.TIME_UNSET)
                 if (d != C.TIME_UNSET && d > 0) _duration.value = d
+                // 定时关闭：到点暂停。刻意不 stopPlayback（与 stopAtQueueEnd 同理），
+                // 迷你条仍能点播放继续；提示复用 _error 通道走 PlayerActivity 的 toast。
+                val end = _sleepEndMs.value
+                if (end > 0L && System.currentTimeMillis() >= end) {
+                    cancelSleepTimer()
+                    runCatching { player.pause() }
+                    _error.value = "定时关闭已生效，已暂停播放"
+                }
                 delay(200)
             }
         }
@@ -562,6 +660,17 @@ class PlayerRepository private constructor(context: Context) {
     }
 
     fun restoreFromPrefs() {
+        // 播放模式（独立于队列 JSON，即使队列损坏也恢复）
+        runCatching {
+            prefs.getString("play_mode", null)?.let { name ->
+                _playMode.value = PlayMode.valueOf(name)
+            }
+        }
+        // 定时关闭恢复：已过期的视为未设置
+        runCatching {
+            val end = prefs.getLong("sleep_end_ms", 0L)
+            _sleepEndMs.value = if (end > System.currentTimeMillis()) end else 0L
+        }
         val str = prefs.getString("queue", null) ?: return
         try {
             val json = JSONObject(str)

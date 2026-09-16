@@ -60,7 +60,8 @@ class PlaylistStore private constructor(context: Context) {
             name = p.name,
             builtin = p.builtin,
             createdAt = p.createdAt,
-            entries = p.entries.toMutableList()
+            entries = p.entries.toMutableList(),
+            importMisses = p.importMisses.toMutableList()
         )
     }
 
@@ -249,6 +250,68 @@ class PlaylistStore private constructor(context: Context) {
         notifyChanged()
     }
 
+    // —— 导入失败条目（misses）——
+
+    /**
+     * 聚合所有歌单的导入失败条目（供「导入失败歌曲」内置歌单展示）。
+     *
+     * 「导入失败歌曲」歌单本身不放歌曲条目（[songsOf] 恒空），其内容就是这份聚合列表。
+     * 顺序为歌单顺序 + 各歌单内追加顺序；歌单被删除时其 misses 随之消失（不残留孤儿数据）。
+     */
+    fun allMisses(): List<ImportMiss> = playlists.flatMap { it.importMisses.toList() }
+
+    /** 追加失败条目到指定歌单（同歌单内按全字段去重，避免重复导入同一歌单产生重复条目）。 */
+    fun addMisses(playlistId: String, misses: List<ImportMiss>) {
+        if (misses.isEmpty()) return
+        val pl = playlists.firstOrNull { it.id == playlistId } ?: return
+        val toAdd = misses.filter { m -> pl.importMisses.none { it == m } }
+        if (toAdd.isEmpty()) return
+        pl.importMisses.addAll(toAdd)
+        save()
+        notifyChanged()
+    }
+
+    /** 移除一条失败记录（按全字段匹配；聚合视图里同一个 miss 只会出现一次）。 */
+    fun removeMiss(miss: ImportMiss) {
+        var changed = false
+        playlists.forEach { pl ->
+            if (pl.importMisses.removeAll { it == miss }) changed = true
+        }
+        if (changed) {
+            save()
+            notifyChanged()
+        }
+    }
+
+    /** 清空指定歌单的全部失败记录（删除歌单时其 misses 随歌单对象一起移除，通常无需单独调）。 */
+    fun clearMissesOf(playlistId: String) {
+        val pl = playlists.firstOrNull { it.id == playlistId } ?: return
+        if (pl.importMisses.isEmpty()) return
+        pl.importMisses.clear()
+        save()
+        notifyChanged()
+    }
+
+    /**
+     * 保证存在 id=[PlaylistModels.FAILED_PLAYLIST_ID] 的**内置歌单**（恒在、不可删不可改名）。
+     *
+     * 它本身不放歌曲条目（[songsOf] 恒空），UI 通过 [allMisses] 展示其内容。
+     * 在 [ensureDefault] 之后调用，加载与首次安装时各执行一次。
+     */
+    private fun ensureFailedPlaylist() {
+        if (playlists.any { it.id == PlaylistModels.FAILED_PLAYLIST_ID }) return
+        playlists.add(
+            LocalPlaylist(
+                id = PlaylistModels.FAILED_PLAYLIST_ID,
+                name = PlaylistModels.FAILED_PLAYLIST_NAME,
+                builtin = true,
+                createdAt = 0L,
+                entries = mutableListOf(),
+                importMisses = mutableListOf()
+            )
+        )
+    }
+
     // —— 变更通知（轻量，可选）——
 
     fun addChangeListener(l: () -> Unit) {
@@ -327,6 +390,7 @@ class PlaylistStore private constructor(context: Context) {
         }
 
         ensureDefault()
+        ensureFailedPlaylist()
         if (needSave) save()
     }
 
@@ -345,13 +409,28 @@ class PlaylistStore private constructor(context: Context) {
                 if (key.isBlank()) continue
                 entries.add(PlaylistEntry(key, e.optLong("addedAt", 0L)))
             }
+            // 导入失败条目（schema v1 内的新增字段；老数据没有 "misses" 数组 → 空列表，向后兼容）
+            val misses = mutableListOf<ImportMiss>()
+            val mArr = p.optJSONArray("misses") ?: JSONArray()
+            for (j in 0 until mArr.length()) {
+                val m = mArr.optJSONObject(j) ?: continue
+                misses.add(
+                    ImportMiss(
+                        title = m.optString("title"),
+                        artist = m.optString("artist"),
+                        durationSec = m.optInt("durationSec", 0),
+                        fromPlaylistName = m.optString("fromPlaylistName")
+                    )
+                )
+            }
             playlists.add(
                 LocalPlaylist(
                     id = id,
                     name = p.optString("name"),
                     builtin = p.optBoolean("builtin", false),
                     createdAt = p.optLong("createdAt", 0L),
-                    entries = entries
+                    entries = entries,
+                    importMisses = misses
                 )
             )
         }
@@ -408,6 +487,17 @@ class PlaylistStore private constructor(context: Context) {
                     eArr.put(eo)
                 }
                 po.put("entries", eArr)
+                // 导入失败条目（可能为空数组；读取端缺失时按空处理）
+                val mArr = JSONArray()
+                p.importMisses.forEach { m ->
+                    val mo = JSONObject()
+                    mo.put("title", m.title)
+                    mo.put("artist", m.artist)
+                    mo.put("durationSec", m.durationSec)
+                    mo.put("fromPlaylistName", m.fromPlaylistName)
+                    mArr.put(mo)
+                }
+                po.put("misses", mArr)
                 arr.put(po)
             }
             root.put("playlists", arr)

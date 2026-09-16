@@ -121,6 +121,26 @@ class SearchFragment : Fragment() {
         if (historyBlock.visibility == View.VISIBLE) {
             emptyText.visibility = View.GONE
         }
+
+        // 由「导入失败歌曲」详情页带过来的关键词：填入输入框并直接搜索
+        val pendingKeyword = arguments?.getString(ARG_KEYWORD).orEmpty().trim()
+        if (pendingKeyword.isNotEmpty()) {
+            input.setText(pendingKeyword)
+            input.setSelection(pendingKeyword.length)
+            performSearch(pendingKeyword)
+        }
+    }
+
+    /**
+     * 供外部（导入失败列表点击）调用：填入关键词并立即搜索。
+     * view 未创建完成时丢弃（MainActivity 用 arguments 传递更可靠，这里兜底）。
+     */
+    fun searchKeyword(kw: String) {
+        if (!isAdded || !::input.isInitialized) return
+        if (kw.isBlank()) return
+        input.setText(kw)
+        input.setSelection(kw.length)
+        performSearch(kw)
     }
 
     /**
@@ -444,9 +464,18 @@ class SearchFragment : Fragment() {
         ).show()
     }
 
-    private companion object {
+    companion object {
+        const val ARG_KEYWORD = "search_keyword"
+
         const val MENU_ID_ADD_TO_PLAYLIST = 1
         const val MENU_ID_DOWNLOAD = 2
         const val MENU_ID_FAVORITE = 3
+
+        /** 带关键词构造：MainActivity 收到导入失败列表的跳转 extra 后用它创建实例。 */
+        fun newInstance(keyword: String?): SearchFragment = SearchFragment().apply {
+            if (!keyword.isNullOrBlank()) {
+                arguments = Bundle().apply { putString(ARG_KEYWORD, keyword) }
+            }
+        }
     }
 }

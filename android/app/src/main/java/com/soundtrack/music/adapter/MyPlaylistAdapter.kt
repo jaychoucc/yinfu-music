@@ -22,7 +22,9 @@ class MyPlaylistAdapter(
     private val onRename: (LocalPlaylist) -> Unit,
     private val onDelete: (LocalPlaylist) -> Unit,
     /** 歌单封面 URL 解析器（末尾可选，默认 null = 不加载封面、保留渐变占位）。口径由调用方给出。 */
-    private val coverOf: ((LocalPlaylist) -> String?)? = null
+    private val coverOf: ((LocalPlaylist) -> String?)? = null,
+    /** 条目数解析器（末尾可选，默认 null = 用 [LocalPlaylist.count]）。「导入失败歌曲」内置歌单用它展示聚合的失败条目数。 */
+    private val countOf: ((LocalPlaylist) -> Int)? = null
 ) : RecyclerView.Adapter<MyPlaylistAdapter.VH>() {
 
     private val items = mutableListOf<LocalPlaylist>()
@@ -53,7 +55,7 @@ class MyPlaylistAdapter(
 
         fun bind(p: LocalPlaylist) {
             name.text = p.name
-            count.text = "${p.count} 首"
+            count.text = "${countOf?.invoke(p) ?: p.count} 首"
             // 封面：先清掉复用残留（ViewHolder 复用会把上一行的图带过来），
             // 清空后露出 XML 上的渐变占位背景；有封面再异步加载覆盖上去。
             cover.setImageDrawable(null)

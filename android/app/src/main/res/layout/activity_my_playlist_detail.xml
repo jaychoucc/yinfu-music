@@ -71,6 +71,14 @@
             android:textColor="@color/text_3"
             android:textSize="14sp"
             android:visibility="gone" />
+
+        <!-- 导入失败列表：仅 import_failed 歌单详情页可见（主列表 songsOf 恒空，走 empty_hint 空态） -->
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/recycler_import_misses"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="@color/bg"
+            android:visibility="gone" />
     </FrameLayout>
 
     <!-- 迷你播放器：高度必须显式写 66dp（理由同 activity_playlist_detail.xml 的注释） -->

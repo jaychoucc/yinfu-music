@@ -87,6 +87,11 @@
                 android:textSize="11sp" />
         </LinearLayout>
 
+        <!--
+            控制行（7 个按钮）：收藏 | 播放模式 | 上一首 | 播放 | 下一首 | 定时 | 下载
+            宽度全部用 weight 分配（不写死 dp），任何屏宽都不会挤到溢出；
+            高度沿用 dimens 里的 small/mid/play 档位，play 居中最大。
+        -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -98,60 +103,63 @@
 
             <ImageButton
                 android:id="@+id/btn_favorite"
-                android:layout_width="@dimen/player_ctrl_btn_small"
+                android:layout_width="0dp"
                 android:layout_height="@dimen/player_ctrl_btn_small"
+                android:layout_weight="1"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:src="@drawable/ic_favorite"
                 android:contentDescription="收藏" />
 
-            <Space
+            <ImageButton
+                android:id="@+id/btn_mode"
                 android:layout_width="0dp"
-                android:layout_height="0dp"
-                android:layout_weight="1" />
+                android:layout_height="@dimen/player_ctrl_btn_small"
+                android:layout_weight="1"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@drawable/ic_repeat"
+                android:contentDescription="播放模式" />
 
             <ImageButton
                 android:id="@+id/btn_prev"
-                android:layout_width="@dimen/player_ctrl_btn_mid"
+                android:layout_width="0dp"
                 android:layout_height="@dimen/player_ctrl_btn_mid"
+                android:layout_weight="1.3"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:src="@drawable/ic_prev"
                 android:contentDescription="上一首" />
 
-            <Space
-                android:layout_width="0dp"
-                android:layout_height="0dp"
-                android:layout_weight="1" />
-
             <ImageButton
                 android:id="@+id/btn_play"
-                android:layout_width="@dimen/player_ctrl_btn_play"
+                android:layout_width="0dp"
                 android:layout_height="@dimen/player_ctrl_btn_play"
+                android:layout_weight="1.7"
                 android:background="@drawable/bg_play_button"
                 android:src="@drawable/ic_play"
                 android:contentDescription="播放/暂停" />
 
-            <Space
-                android:layout_width="0dp"
-                android:layout_height="0dp"
-                android:layout_weight="1" />
-
             <ImageButton
                 android:id="@+id/btn_next"
-                android:layout_width="@dimen/player_ctrl_btn_mid"
+                android:layout_width="0dp"
                 android:layout_height="@dimen/player_ctrl_btn_mid"
+                android:layout_weight="1.3"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:src="@drawable/ic_next"
                 android:contentDescription="下一首" />
 
-            <Space
+            <ImageButton
+                android:id="@+id/btn_sleep"
                 android:layout_width="0dp"
-                android:layout_height="0dp"
-                android:layout_weight="1" />
+                android:layout_height="@dimen/player_ctrl_btn_small"
+                android:layout_weight="1"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@drawable/ic_timer"
+                android:contentDescription="定时关闭" />
 
             <ImageButton
                 android:id="@+id/btn_download"
-                android:layout_width="@dimen/player_ctrl_btn_small"
+                android:layout_width="0dp"
                 android:layout_height="@dimen/player_ctrl_btn_small"
+                android:layout_weight="1"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:src="@drawable/ic_download"
                 android:contentDescription="下载" />
@@ -173,4 +181,160 @@
             android:layout_weight="1"
             android:layout_marginTop="12dp" />
     </LinearLayout>
+
+    <!--
+        全屏歌词层：盖在所有内容之上，默认隐藏。
+        点击封面 / 标题 / 歌手区进入；返回按钮或物理返回键退出。
+    -->
+    <FrameLayout
+        android:id="@+id/fullscreen_lyrics"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone">
+
+        <!-- 复用普通页同一份模糊封面（代码里与 bgView 同步设图），不新增 blur 库 -->
+        <ImageView
+            android:id="@+id/fs_bg"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:scaleType="centerCrop"
+            android:src="@color/panel" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="#B3000000" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:orientation="vertical"
+            android:paddingStart="20dp"
+            android:paddingEnd="20dp"
+            android:paddingTop="14dp"
+            android:paddingBottom="16dp">
+
+            <!-- 顶部行：返回 + 标题 + 歌手 -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <ImageButton
+                    android:id="@+id/btn_fs_back"
+                    android:layout_width="@dimen/player_ctrl_btn_small"
+                    android:layout_height="@dimen/player_ctrl_btn_small"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:src="@drawable/ic_close"
+                    android:contentDescription="退出全屏歌词" />
+
+                <TextView
+                    android:id="@+id/fs_title"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginStart="8dp"
+                    android:text="未在播放"
+                    android:textColor="@color/text"
+                    android:textSize="16sp"
+                    android:textStyle="bold"
+                    android:maxLines="1"
+                    android:ellipsize="end" />
+
+                <TextView
+                    android:id="@+id/fs_artist"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:text="—"
+                    android:textColor="@color/text_2"
+                    android:textSize="13sp"
+                    android:maxLines="1"
+                    android:ellipsize="end" />
+            </LinearLayout>
+
+            <!-- 歌词列表：与普通页共用同一个 LyricAdapter（不解析两份歌词） -->
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/recycler_fs_lyrics"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:layout_marginTop="8dp"
+                android:clipToPadding="false"
+                android:paddingTop="48dp"
+                android:paddingBottom="48dp" />
+
+            <!-- 底部简化控制行（5 个按钮，状态与普通页联动） -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center"
+                android:layout_marginTop="8dp"
+                android:layout_marginStart="@dimen/player_ctrl_row_margin_h"
+                android:layout_marginEnd="@dimen/player_ctrl_row_margin_h">
+
+                <ImageButton
+                    android:id="@+id/btn_fs_mode"
+                    android:layout_width="@dimen/player_ctrl_btn_small"
+                    android:layout_height="@dimen/player_ctrl_btn_small"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:src="@drawable/ic_repeat"
+                    android:contentDescription="播放模式" />
+
+                <Space
+                    android:layout_width="0dp"
+                    android:layout_height="0dp"
+                    android:layout_weight="1" />
+
+                <ImageButton
+                    android:id="@+id/btn_fs_prev"
+                    android:layout_width="@dimen/player_ctrl_btn_mid"
+                    android:layout_height="@dimen/player_ctrl_btn_mid"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:src="@drawable/ic_prev"
+                    android:contentDescription="上一首" />
+
+                <Space
+                    android:layout_width="0dp"
+                    android:layout_height="0dp"
+                    android:layout_weight="1" />
+
+                <ImageButton
+                    android:id="@+id/btn_fs_play"
+                    android:layout_width="@dimen/player_ctrl_btn_play"
+                    android:layout_height="@dimen/player_ctrl_btn_play"
+                    android:background="@drawable/bg_play_button"
+                    android:src="@drawable/ic_play"
+                    android:contentDescription="播放/暂停" />
+
+                <Space
+                    android:layout_width="0dp"
+                    android:layout_height="0dp"
+                    android:layout_weight="1" />
+
+                <ImageButton
+                    android:id="@+id/btn_fs_next"
+                    android:layout_width="@dimen/player_ctrl_btn_mid"
+                    android:layout_height="@dimen/player_ctrl_btn_mid"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:src="@drawable/ic_next"
+                    android:contentDescription="下一首" />
+
+                <Space
+                    android:layout_width="0dp"
+                    android:layout_height="0dp"
+                    android:layout_weight="1" />
+
+                <ImageButton
+                    android:id="@+id/btn_fs_sleep"
+                    android:layout_width="@dimen/player_ctrl_btn_small"
+                    android:layout_height="@dimen/player_ctrl_btn_small"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:src="@drawable/ic_timer"
+                    android:contentDescription="定时关闭" />
+            </LinearLayout>
+        </LinearLayout>
+    </FrameLayout>
 </FrameLayout>
