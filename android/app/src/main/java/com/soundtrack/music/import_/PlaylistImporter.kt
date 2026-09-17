@@ -150,8 +150,19 @@ object PlaylistImporter {
             .sortedBy { sourceRank(it.id) }
         // 源实例只构建一次复用，避免每首歌重复 resolve 的线性查找
         val candidateSources = candidateMetas.mapNotNull { SourceResolver.resolve(it.id) }
+        // 重复导入判定：歌单内已有（按「归一化标题+歌手」签名）的歌曲直接跳过，
+        // 不再全源重搜——这是重复导入提速的关键。songKey 含 source 前缀，
+        // 同一首歌跨源匹配 key 不同，故不能用 songKey 判重，只能用元数据签名。
+        val existingSignatures = HashSet<String>()
+        store.songsOf(targetId).forEach { s ->
+            existingSignatures.add(songSignature(s.title, s.artist))
+        }
+        store.missesOf(targetId).forEach { m ->
+            existingSignatures.add(songSignature(m.title, m.artist))
+        }
         val total = tracks.size
         val done = AtomicInteger(0)
+        val skipped = AtomicInteger(0)
         val misses = CopyOnWriteArrayList<ImportMiss>()
         val songSem = Semaphore(MAX_SONG_CONCURRENCY)
 
@@ -160,6 +171,13 @@ object PlaylistImporter {
                 launch {
                     songSem.withPermit {
                         ensureActive()
+                        // 已在歌单内（或已在失败列表）→ 跳过搜索，直接计进度
+                        if (songSignature(track.title, track.artist) in existingSignatures) {
+                            skipped.incrementAndGet()
+                            val d = done.incrementAndGet()
+                            withContext(Dispatchers.Main) { onProgress(d, total, track.title) }
+                            return@withPermit
+                        }
                         // 每首歌独立信号量：否则 8 首歌争抢同一个 10 许可的全局信号量，
                         // 实际并发会塌缩到 10 路而非 8×10 路
                         val best = runCatching {
@@ -168,6 +186,12 @@ object PlaylistImporter {
                         if (best != null) {
                             // 命中：入歌单（playUrl 留空，播放时 PlayerRepository 解析）
                             runCatching { store.addToPlaylist(targetId, best) }
+                            // 该曲此前若在失败列表里，现在匹配上了 → 移出失败列表
+                            runCatching {
+                                store.removeMiss(
+                                    ImportMiss(track.title, track.artist, track.durationSec, localName)
+                                )
+                            }
                         } else {
                             misses.add(
                                 ImportMiss(
@@ -191,11 +215,21 @@ object PlaylistImporter {
 
         ImportResult(
             playlistName = localName,
-            matched = total - missList.size,
+            matched = total - missList.size - skipped.get(),
             total = total,
             misses = missList
         )
     }
+
+    /**
+     * 歌曲身份签名：归一化标题 + 归一化歌手，用于重复导入时判定「同一首歌已存在」。
+     *
+     * 不用 [SongKeys.of] 的原因：songKey 含 source 前缀（`netease:123` vs `migu:456`），
+     * 同一首歌在二次导入时可能匹配到不同源，key 不同会被当成两首歌导致重复入单。
+     * 元数据签名与 [score] 的标题/歌手归一化口径保持一致。
+     */
+    private fun songSignature(title: String, artist: String): String =
+        "${normalizeTitle(title)}|${normalizeTitle(artist)}"
 
     /**
      * 为一首原曲在全部候选源中搜索、打分，返回最高分且达到 [MATCH_THRESHOLD] 的候选；否则 null。

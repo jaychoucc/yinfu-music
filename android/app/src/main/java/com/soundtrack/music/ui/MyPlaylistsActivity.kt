@@ -190,12 +190,18 @@ class MyPlaylistsActivity : AppCompatActivity() {
 
     /** 导入完成结果对话框；有失败条目时附「查看失败列表」。 */
     private fun showImportResult(result: ImportResult) {
+        // 重复导入时 matched 只统计「本次新增」，已存在的部分单独列 sketched，避免用户误以为重复入单
+        val matchedLine = if (result.total > 0) {
+            "成功 ${result.matched}/${result.total} 首" +
+                if (result.total - result.matched - result.misses.size > 0)
+                    "（${result.total - result.matched - result.misses.size} 首已存在，已跳过）"
+                else ""
+        } else "空歌单"
         val builder = AlertDialog.Builder(this)
             .setTitle("导入完成")
             .setMessage(
-                "歌单「${result.playlistName}」\n" +
-                    "成功 ${result.matched}/${result.total} 首" +
-                    if (result.misses.isNotEmpty()) "，失败 ${result.misses.size} 首" else ""
+                "歌单「${result.playlistName}」\n$matchedLine" +
+                    if (result.misses.isNotEmpty()) "\n失败 ${result.misses.size} 首" else ""
             )
         if (result.misses.isNotEmpty()) {
             builder.setPositiveButton("查看失败列表") { _, _ ->

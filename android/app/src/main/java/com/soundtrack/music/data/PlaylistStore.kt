@@ -29,6 +29,13 @@ class PlaylistStore private constructor(context: Context) {
     /** 所有歌单；顺序即展示顺序，默认歌单恒为首项。 */
     private val playlists = mutableListOf<LocalPlaylist>()
 
+    /**
+     * 读写锁：导入器会 8 路并发调用 [addToPlaylist]，而 [save] 会 forEach 遍历
+     * playlists / entries / importMisses。不串行化会触发 ConcurrentModificationException
+     * 或丢更新。所有变更方法都在此锁内「改数据 + 落盘」，通知听众放到锁外（同线程可重入无死锁风险）。
+     */
+    private val lock = Any()
+
     /** 轻量变更观察者（同屏刷新用；跨页仍以 onResume 重读为主）。 */
     private val listeners = mutableListOf<() -> Unit>()
 
@@ -99,48 +106,59 @@ class PlaylistStore private constructor(context: Context) {
 
     /** 新建歌单：成功返回 null，否则返回错误文案（空名/超长/同名/保留名/超上限）。 */
     fun createPlaylist(rawName: String): String? {
-        if (playlists.size >= MAX_PLAYLISTS) return "歌单数量已达上限（$MAX_PLAYLISTS 张）"
-        val err = validateName(rawName, null)
-        if (err != null) return err
+        synchronized(lock) {
+            if (playlists.size >= MAX_PLAYLISTS) return "歌单数量已达上限（$MAX_PLAYLISTS 张）"
+            val err = validateName(rawName, null)
+            if (err != null) return err
 
-        val name = rawName.trim()
-        val now = System.currentTimeMillis()
-        // 时间戳 + 序号生成稳定唯一 id（同一毫秒连续新建也不会撞）
-        val id = "pl_${now.toString(36)}_${playlists.size + 1}"
-        playlists.add(LocalPlaylist(id, name, builtin = false, createdAt = now, entries = mutableListOf()))
-        save()
-        notifyChanged()
-        return null
+            val name = rawName.trim()
+            val now = System.currentTimeMillis()
+            // 时间戳 + 序号生成稳定唯一 id（同一毫秒连续新建也不会撞）
+            val id = "pl_${now.toString(36)}_${playlists.size + 1}"
+            playlists.add(
+                LocalPlaylist(
+                    id, name, builtin = false, createdAt = now,
+                    entries = mutableListOf()
+                )
+            )
+            save()
+            notifyChanged()
+            return null
+        }
     }
 
     /** 重命名歌单：成功（含「名称未变化」）返回 null，否则返回错误文案；默认歌单防御性拒绝。 */
     fun renamePlaylist(playlistId: String, rawName: String): String? {
-        val pl = playlists.firstOrNull { it.id == playlistId } ?: return "歌单不存在"
-        // 防御性拒绝：默认歌单不可改名（UI 已隐藏入口，此处是第二道保险）
-        if (pl.builtin) return "默认歌单不可重命名"
-        // 名称未变化 → 直接成功、不产生变更
-        if (pl.name.trim().equals(rawName.trim(), ignoreCase = true)) return null
+        synchronized(lock) {
+            val pl = playlists.firstOrNull { it.id == playlistId } ?: return "歌单不存在"
+            // 防御性拒绝：默认歌单不可改名（UI 已隐藏入口，此处是第二道保险）
+            if (pl.builtin) return "默认歌单不可重命名"
+            // 名称未变化 → 直接成功、不产生变更
+            if (pl.name.trim().equals(rawName.trim(), ignoreCase = true)) return null
 
-        val err = validateName(rawName, playlistId)
-        if (err != null) return err
+            val err = validateName(rawName, playlistId)
+            if (err != null) return err
 
-        pl.name = rawName.trim()
-        save()
-        notifyChanged()
-        return null
+            pl.name = rawName.trim()
+            save()
+            notifyChanged()
+            return null
+        }
     }
 
     /** 删除歌单：成功返回 true；默认歌单 / 不存在返回 false。删除后 GC 曲库。 */
     fun deletePlaylist(playlistId: String): Boolean {
-        val pl = playlists.firstOrNull { it.id == playlistId } ?: return false
-        // 防御性拒绝：默认歌单不可删（UI 已隐藏入口，此处是第二道保险）
-        if (pl.builtin) return false
+        synchronized(lock) {
+            val pl = playlists.firstOrNull { it.id == playlistId } ?: return false
+            // 防御性拒绝：默认歌单不可删（UI 已隐藏入口，此处是第二道保险）
+            if (pl.builtin) return false
 
-        playlists.remove(pl)
-        gcLibrary()
-        save()
-        notifyChanged()
-        return true
+            playlists.remove(pl)
+            gcLibrary()
+            save()
+            notifyChanged()
+            return true
+        }
     }
 
     /** 名称是否已被占用（去首尾空格、忽略大小写）；默认歌单名「我喜欢的音乐」亦算占用。 */
@@ -186,54 +204,60 @@ class PlaylistStore private constructor(context: Context) {
      * 「取消勾选」即从对应歌单移除；「勾选」即加入；未变化的歌单不动。
      */
     fun setMembership(song: Song, targetPlaylistIds: Set<String>) {
-        val key = SongKeys.of(song)
-        var changed = false
-        var needInLibrary = false
-        val now = System.currentTimeMillis()
+        synchronized(lock) {
+            val key = SongKeys.of(song)
+            var changed = false
+            var needInLibrary = false
+            val now = System.currentTimeMillis()
 
-        for (pl in playlists) {
-            val shouldContain = pl.id in targetPlaylistIds
-            val entry = pl.entries.firstOrNull { it.songKey == key }
-            when {
-                shouldContain && entry == null -> {
-                    pl.entries.add(PlaylistEntry(key, now))
-                    needInLibrary = true
-                    changed = true
-                }
-                !shouldContain && entry != null -> {
-                    pl.entries.remove(entry)
-                    changed = true
+            for (pl in playlists) {
+                val shouldContain = pl.id in targetPlaylistIds
+                val entry = pl.entries.firstOrNull { it.songKey == key }
+                when {
+                    shouldContain && entry == null -> {
+                        pl.entries.add(PlaylistEntry(key, now))
+                        needInLibrary = true
+                        changed = true
+                    }
+                    !shouldContain && entry != null -> {
+                        pl.entries.remove(entry)
+                        changed = true
+                    }
                 }
             }
-        }
 
-        if (needInLibrary) putLibraryIfAbsent(key, song)
-        if (changed) {
-            gcLibrary()
-            save()
-            notifyChanged()
+            if (needInLibrary) putLibraryIfAbsent(key, song)
+            if (changed) {
+                gcLibrary()
+                save()
+                notifyChanged()
+            }
         }
     }
 
     /** 追加到指定歌单（已存在则幂等跳过）。 */
     fun addToPlaylist(playlistId: String, song: Song) {
-        val pl = playlists.firstOrNull { it.id == playlistId } ?: return
-        val key = SongKeys.of(song)
-        if (pl.entries.any { it.songKey == key }) return
-        putLibraryIfAbsent(key, song)
-        pl.entries.add(PlaylistEntry(key, System.currentTimeMillis()))
-        save()
-        notifyChanged()
+        synchronized(lock) {
+            val pl = playlists.firstOrNull { it.id == playlistId } ?: return
+            val key = SongKeys.of(song)
+            if (pl.entries.any { it.songKey == key }) return
+            putLibraryIfAbsent(key, song)
+            pl.entries.add(PlaylistEntry(key, System.currentTimeMillis()))
+            save()
+            notifyChanged()
+        }
     }
 
     /** 从指定歌单移除一首歌（默认歌单也允许移除；Q2 裁定）。 */
     fun removeFromPlaylist(playlistId: String, songKey: String) {
-        val pl = playlists.firstOrNull { it.id == playlistId } ?: return
-        val removed = pl.entries.removeAll { it.songKey == songKey }
-        if (!removed) return
-        gcLibrary()
-        save()
-        notifyChanged()
+        synchronized(lock) {
+            val pl = playlists.firstOrNull { it.id == playlistId } ?: return
+            val removed = pl.entries.removeAll { it.songKey == songKey }
+            if (!removed) return
+            gcLibrary()
+            save()
+            notifyChanged()
+        }
     }
 
     /**
@@ -241,13 +265,15 @@ class PlaylistStore private constructor(context: Context) {
      * 只更新全局曲库那一条 → 所有引用该歌的歌单同时生效（§7.8）。
      */
     fun updatePlayUrl(song: Song, newUrl: String) {
-        val key = SongKeys.of(song)
-        val target = library[key] ?: song.copy().also { library[key] = it }
-        target.playUrl = newUrl
-        // 让当前正在播放的对象也一致（通常是同一个快照，此处为兜底）
-        if (song !== target) song.playUrl = newUrl
-        save()
-        notifyChanged()
+        synchronized(lock) {
+            val key = SongKeys.of(song)
+            val target = library[key] ?: song.copy().also { library[key] = it }
+            target.playUrl = newUrl
+            // 让当前正在播放的对象也一致（通常是同一个快照，此处为兜底）
+            if (song !== target) song.playUrl = newUrl
+            save()
+            notifyChanged()
+        }
     }
 
     // —— 导入失败条目（misses）——
@@ -260,36 +286,46 @@ class PlaylistStore private constructor(context: Context) {
      */
     fun allMisses(): List<ImportMiss> = playlists.flatMap { it.importMisses.toList() }
 
+    /** 指定歌单的失败条目（重复导入时用于判定该曲是否已在失败列表，避免重搜）。 */
+    fun missesOf(playlistId: String): List<ImportMiss> =
+        playlists.firstOrNull { it.id == playlistId }?.importMisses?.toList() ?: emptyList()
+
     /** 追加失败条目到指定歌单（同歌单内按全字段去重，避免重复导入同一歌单产生重复条目）。 */
     fun addMisses(playlistId: String, misses: List<ImportMiss>) {
-        if (misses.isEmpty()) return
-        val pl = playlists.firstOrNull { it.id == playlistId } ?: return
-        val toAdd = misses.filter { m -> pl.importMisses.none { it == m } }
-        if (toAdd.isEmpty()) return
-        pl.importMisses.addAll(toAdd)
-        save()
-        notifyChanged()
-    }
-
-    /** 移除一条失败记录（按全字段匹配；聚合视图里同一个 miss 只会出现一次）。 */
-    fun removeMiss(miss: ImportMiss) {
-        var changed = false
-        playlists.forEach { pl ->
-            if (pl.importMisses.removeAll { it == miss }) changed = true
-        }
-        if (changed) {
+        synchronized(lock) {
+            if (misses.isEmpty()) return
+            val pl = playlists.firstOrNull { it.id == playlistId } ?: return
+            val toAdd = misses.filter { m -> pl.importMisses.none { it == m } }
+            if (toAdd.isEmpty()) return
+            pl.importMisses.addAll(toAdd)
             save()
             notifyChanged()
         }
     }
 
+    /** 移除一条失败记录（按全字段匹配；聚合视图里同一个 miss 只会出现一次）。 */
+    fun removeMiss(miss: ImportMiss) {
+        synchronized(lock) {
+            var changed = false
+            playlists.forEach { pl ->
+                if (pl.importMisses.removeAll { it == miss }) changed = true
+            }
+            if (changed) {
+                save()
+                notifyChanged()
+            }
+        }
+    }
+
     /** 清空指定歌单的全部失败记录（删除歌单时其 misses 随歌单对象一起移除，通常无需单独调）。 */
     fun clearMissesOf(playlistId: String) {
-        val pl = playlists.firstOrNull { it.id == playlistId } ?: return
-        if (pl.importMisses.isEmpty()) return
-        pl.importMisses.clear()
-        save()
-        notifyChanged()
+        synchronized(lock) {
+            val pl = playlists.firstOrNull { it.id == playlistId } ?: return
+            if (pl.importMisses.isEmpty()) return
+            pl.importMisses.clear()
+            save()
+            notifyChanged()
+        }
     }
 
     /**
