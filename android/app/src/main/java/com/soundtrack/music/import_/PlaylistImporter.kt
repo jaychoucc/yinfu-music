@@ -6,6 +6,7 @@ import com.soundtrack.music.data.PlaylistModels
 import com.soundtrack.music.data.PlaylistStore
 import com.soundtrack.music.model.Song
 import com.soundtrack.music.source.BuiltinSources
+import com.soundtrack.music.source.MusicSource
 import com.soundtrack.music.source.NeteaseMusicSource
 import com.soundtrack.music.source.SourceResolver
 import kotlinx.coroutines.Dispatchers
@@ -45,6 +46,12 @@ data class ImportResult(
  *  - [MAX_SONG_CONCURRENCY]：同时匹配的歌曲数上限；
  *  - [MAX_SOURCE_CONCURRENCY]：单首歌搜索时的并发源数上限。
  *
+ * 提速策略（2026-09-17）：
+ *  - 候选源按 [SOURCE_PRIORITY] 排序，网易云本源排最前 —— 歌单来自网易云，本源命中率最高；
+ *  - [EARLY_EXIT_SCORE] 早退：一旦出现「标题精确+歌手全中+时长≤3s」级别的命中（135 分），
+ *    其余仍在排队的源直接跳过。绝大多数歌曲 1~2 个源即可定案，不必等完全部 46 个源。
+ *  - 源实例只解析一次复用，不逐歌重复 SourceResolver.resolve 线性查找。
+ *
  * 全程不抛业务异常（单首/单源失败一律吞掉）；仅 [urlOrId] 无法解析出 id 时抛 [IllegalArgumentException]
  * 供 UI 提示「链接格式不正确」。歌单抓不到（需要登录/链接错误）时返回 null。
  */
@@ -53,20 +60,33 @@ object PlaylistImporter {
     /** 匹配成功阈值：标题完全相等(100) + 歌手命中(20) + 时长接近(15) 至少要凑够 80 分。 */
     private const val MATCH_THRESHOLD = 80
 
-    /** 同时匹配的歌曲数上限（歌曲间互相独立，4 并发足够且省电省流量）。 */
-    private const val MAX_SONG_CONCURRENCY = 4
+    /** 早退分数线：标题精确(100)+歌手全中(20)+时长≤3s(15)=135，再叠加音质分(≤3)即为满分 138。
+     *  达到该线意味着元数据层面已无法被超越，其余源不必再等。 */
+    private const val EARLY_EXIT_SCORE = 135
 
-    /** 单首歌搜索全部候选源时的并发上限（可播放源有 40+ 个，全开会被风控）。 */
-    private const val MAX_SOURCE_CONCURRENCY = 8
+    /** 同时匹配的歌曲数上限（歌曲间互相独立，提高到 8 让多核手机充分并行）。 */
+    private const val MAX_SONG_CONCURRENCY = 8
 
-    /** 单源搜索超时（与搜索页的 10s 超时同量级）。 */
-    private const val PER_SOURCE_SEARCH_TIMEOUT = 8_000L
+    /** 单首歌搜索全部候选源时的并发上限（配合 8 歌曲 = 64 路并行，撞 OkHttp/IO 调度器上限即止）。 */
+    private const val MAX_SOURCE_CONCURRENCY = 10
+
+    /** 单源搜索超时（搜索页只取 5 条，5s 足够；卡住的源不再长时间占坑）。 */
+    private const val PER_SOURCE_SEARCH_TIMEOUT = 5_000L
 
     /** 单首歌「搜全部源」的总超时：慢源到期前返回的候选照常参与评分。 */
-    private const val PER_SONG_TOTAL_TIMEOUT = 30_000L
+    private const val PER_SONG_TOTAL_TIMEOUT = 20_000L
 
     /** 每个源只需少量候选用于打分，拿前 5 条足够且更快。 */
     private const val SEARCH_PAGE_SIZE = 5
+
+    /** 候选源排序优先级：歌单来自网易云，本源与国内主力源排前，命中快、早退早。 */
+    private val SOURCE_PRIORITY = listOf("netease", "migu", "qq", "kuwo", "kugou", "qianqian")
+
+    /** 源排序权重：在 [SOURCE_PRIORITY] 中的下标，不在其中的统一沉底。 */
+    private fun sourceRank(id: String): Int {
+        val idx = SOURCE_PRIORITY.indexOf(id)
+        return if (idx >= 0) idx else SOURCE_PRIORITY.size
+    }
 
     /** 从链接或纯 ID 提取歌单 id；失败返回 null（UI 提示「链接格式不正确」）。 */
     private val ID_PATTERN = Regex("""[?&]id=(\d+)""")
@@ -124,19 +144,27 @@ object PlaylistImporter {
         onPlaylistCreated(targetId)
 
         // 4. 逐首匹配（有界并发）：候选源 = 全部可播放源（FULL + PREVIEW）
-        val candidateMetas = BuiltinSources.ALL.filter { BuiltinSources.canPlay(it) }
+        //    按命中率排序 + 早退，绝大多数歌只需查前几个源即可定案
+        val candidateMetas = BuiltinSources.ALL
+            .filter { BuiltinSources.canPlay(it) }
+            .sortedBy { sourceRank(it.id) }
+        // 源实例只构建一次复用，避免每首歌重复 resolve 的线性查找
+        val candidateSources = candidateMetas.mapNotNull { SourceResolver.resolve(it.id) }
         val total = tracks.size
         val done = AtomicInteger(0)
         val misses = CopyOnWriteArrayList<ImportMiss>()
         val songSem = Semaphore(MAX_SONG_CONCURRENCY)
-        val sourceSem = Semaphore(MAX_SOURCE_CONCURRENCY)
 
         coroutineScope {
             tracks.forEach { track ->
                 launch {
                     songSem.withPermit {
                         ensureActive()
-                        val best = runCatching { matchBest(track, candidateMetas, sourceSem) }.getOrNull()
+                        // 每首歌独立信号量：否则 8 首歌争抢同一个 10 许可的全局信号量，
+                        // 实际并发会塌缩到 10 路而非 8×10 路
+                        val best = runCatching {
+                            matchBest(track, candidateSources, Semaphore(MAX_SOURCE_CONCURRENCY))
+                        }.getOrNull()
                         if (best != null) {
                             // 命中：入歌单（playUrl 留空，播放时 PlayerRepository 解析）
                             runCatching { store.addToPlaylist(targetId, best) }
@@ -174,28 +202,41 @@ object PlaylistImporter {
      *
      * 总超时 [PER_SONG_TOTAL_TIMEOUT] 兜底：慢源到期前已返回的候选照常参与评分，
      * 不会因为一个源卡死整首歌（更不会卡死整个导入）。
+     *
+     * 早退：并发搜索过程中一旦出现 ≥[EARLY_EXIT_SCORE] 的命中，仍在排队的源直接跳过
+     * （元数据层面已无法被超越，继续查只是浪费时间）。
      */
     private suspend fun matchBest(
         track: Song,
-        metas: List<BuiltinSources.Meta>,
+        sources: List<MusicSource>,
         sourceSem: Semaphore
     ): Song? {
         val keyword = "${track.title} ${track.artist}".trim()
         if (keyword.isBlank()) return null
         val candidates = CopyOnWriteArrayList<Pair<Song, Int>>()
+        val bestScore = AtomicInteger(0)
 
         withTimeoutOrNull(PER_SONG_TOTAL_TIMEOUT) {
             coroutineScope {
-                metas.forEach { meta ->
+                sources.forEach { src ->
                     launch {
                         runCatching {
+                            // 早退闸门：拿许可前先看已有命中是否已到早退线，到了就不发请求
+                            if (bestScore.get() >= EARLY_EXIT_SCORE) return@launch
                             sourceSem.withPermit {
-                                val src = SourceResolver.resolve(meta.id) ?: return@launch
+                                if (bestScore.get() >= EARLY_EXIT_SCORE) return@withPermit
                                 val list = withTimeoutOrNull(PER_SOURCE_SEARCH_TIMEOUT) {
                                     src.search(keyword, SEARCH_PAGE_SIZE)
-                                } ?: return@launch
+                                } ?: return@withPermit
                                 list.forEach { c ->
-                                    score(track, c)?.let { candidates.add(c to it) }
+                                    score(track, c)?.let { s ->
+                                        candidates.add(c to s)
+                                        // 记录当前最高分（CAS 自旋，无锁）
+                                        var prev = bestScore.get()
+                                        while (s > prev && !bestScore.compareAndSet(prev, s)) {
+                                            prev = bestScore.get()
+                                        }
+                                    }
                                 }
                             }
                         }
