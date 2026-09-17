@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- 网易云歌单导入提速（2026-09-17，多线程）：匹配阶段从「4 歌并发 × 共享 8 源信号量」升级为「8 歌并发 × 每歌独立 10 源信号量」，修复 8 首歌争抢同一个全局信号量导致实际并发塌缩到 10 路的问题；新增**早退机制**——一旦出现 ≥135 分（标题精确 100 + 歌手全中 20 + 时长 ≤3s 15）的命中，仍在排队的音源直接跳过，绝大多数歌曲 1~2 个源即可定案；候选源按命中率排序（网易云本源排最前，歌单来源平台命中最高）；源实例只构建一次全局复用；单源超时 8s→5s、单歌总超时 30s→20s
+
 ### Added
 - 播放器 UI 优化（2026-09-17）：播放模式切换 + 定时关闭 + 全屏可拖动歌词
   - 播放模式：`PlayerRepository` 新增 `enum PlayMode { LIST（列表播放）/ SINGLE（单曲循环）/ SHUFFLE（随机播放）}`，`cyclePlayMode()` 按 LIST→SINGLE→SHUFFLE→LIST 循环并持久化（`play_mode`）；`next()` 重写 —— SINGLE 为 `seekTo(0)+replay`（并从本轮已播集合移除当前曲，避免随机池污染）、SHUFFLE 从「未失败 + 未在本轮播过」候选中随机，全部播完才清池重洗；StateFlow 驱动按钮图标（`ic_repeat`/`ic_repeat_one`/`ic_shuffle`）与高亮色切换；`restoreFromPrefs` 恢复模式偏好
@@ -19,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 失败处理：未匹配曲目（标题/歌手/时长/来源歌单）写入新建歌单的 `importMisses`，并汇总到内置「导入失败歌曲」歌单；该歌单详情页用 `ImportMissAdapter` 展示失败列表，**点击歌名直接跳搜索页并以曲名发起搜索**（顺带写入搜索历史），长按可移除单条
   - 联动：`MainActivity` 接收 `EXTRA_SEARCH_KEYWORD`（`CLEAR_TOP|SINGLE_TOP`）自动切到搜索 tab 并回填关键词；`SearchFragment` 新增 `newInstance(keyword)` / `searchKeyword(kw)`
   - 约束遵守：不新增任何第三方依赖；新增文件 `ImportMissAdapter.kt` / `PlaylistImporter.kt` / `item_import_miss.xml` / `ic_import.xml` / `ic_repeat.xml` / `ic_repeat_one.xml` / `ic_shuffle.xml` / `ic_timer.xml`
+  - 提速（见上 Changed 节）：多线程匹配 + 早退。**加速比为理论推算尚未真机实测**——旧版单歌上限 30s × ⌈10/4⌉ ≈ 90s，新版早退后多数歌只需 1~2 个源往返，待真机验证后补实测数据
 - 搜索历史（2026-09-16）：搜索页空态展示最近搜过的关键词（≤ 20 条，最近在前），点击词条直接回填并搜索，每条右侧 ✕ 删单条，顶部「清空」一键全删（带二次确认）
   - 数据层 `data/PrefsStore.kt`：修复既有**无序 bug** —— 旧实现 `putStringSet/getStringSet` 存取，`getStringSet` 返回 `HashSet` 无序，「最近在前」根本不成立；改为 `\n` 分隔的单一字符串保序存取。新增 `removeHistory(keyword)` 删单条；`addHistory` 去重置顶 + 空词过滤 + 内部换行替换为空格（剪贴板粘贴含换行文本会让 `\n` 分隔符切分错乱）
   - UI：`fragment_search.xml` 在源选择器与结果列表之间插入 `history_block`（标题「搜索历史」+「清空」按钮 + `recycler_history`，默认 GONE）；新建 `item_search_history.xml`（整行水波纹可点 + 右侧 `ic_close` 24dp）；新建 `adapter/SearchHistoryAdapter.kt`（`ListAdapter` + `DiffUtil` 局部刷新，零新依赖）
