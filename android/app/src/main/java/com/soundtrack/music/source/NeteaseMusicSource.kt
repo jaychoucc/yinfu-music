@@ -3,12 +3,13 @@ package com.soundtrack.music.source
 import com.soundtrack.music.model.Song
 import com.soundtrack.music.util.Net
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.FormBody
 import okhttp3.Request
 import org.json.JSONObject
-import java.net.URLEncoder
 
 /**
  * 网易云音乐源：公开搜索 + 第三方解析链 + 官方歌词
@@ -21,6 +22,10 @@ class NeteaseMusicSource : MusicSource {
         "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
         "Referer" to "https://music.163.com/"
     )
+
+    /** song/detail 批量补全的单块大小：实测 657 首单次 201ms 即可返回，
+     *  分块是为对超大歌单容错（服务端可能对超长请求限流）。 */
+    private val BATCH = 200
 
     override suspend fun search(keyword: String, pageSize: Int): List<Song> = withContext(Dispatchers.IO) {
         val body = FormBody.Builder()
@@ -89,8 +94,15 @@ class NeteaseMusicSource : MusicSource {
      *     解析出的曲目缺歌手与时长，匹配评分会受损，仅作为 v6 失败时的兜底
      *     （有歌单名+曲目名，失败歌单的点歌名搜索仍可用）。
      *
-     * tracks 优先；缺失/截断时用 trackIds 批量 `song/detail` 补全（未登录时该接口同样精简，
-     * 属最后兜底）。任何一层失败返回 null，由调用方提示。
+     * tracks 优先；**缺失或截断**时用 trackIds 批量 `song/detail` 并行补全。
+     *
+     * 截断问题（2026-09-18 修复，实测歌单 390231913 复现）：
+     *  未登录请求 v6 时 `tracks` 只返回前几首（657 曲歌单只给 6 首），但 `trackIds` 是完整的 657 条。
+     *  旧代码 tracks 非空就直接返回 6 首，且 trackIds 兜底路径因**只传 c 参数**被服务端以
+     *  400「参数错误」拒绝（该接口必须同时传 c=对象数组 与 ids=数字数组），导致 651 首永久丢失。
+     *  现按 trackIds 长度判定截断，分块并行 song/detail 补全。
+     *
+     * 任何一层失败返回 null，由调用方提示。
      */
     suspend fun fetchPlaylist(playlistId: Long): Pair<String, List<Song>>? = withContext(Dispatchers.IO) {
         runCatching {
@@ -98,7 +110,7 @@ class NeteaseMusicSource : MusicSource {
         }.getOrNull()
     }
 
-    private fun fetchPlaylistViaGet(playlistId: Long): Pair<String, List<Song>>? {
+    private suspend fun fetchPlaylistViaGet(playlistId: Long): Pair<String, List<Song>>? {
         val req = Request.Builder()
             .url("https://music.163.com/api/playlist/detail?id=$playlistId&n=1000")
             .headers(okhttp3.Headers.headersOf(*headers.flatMap { listOf(it.key, it.value) }.toTypedArray()))
@@ -108,7 +120,7 @@ class NeteaseMusicSource : MusicSource {
         return parsePlaylistFromResp(resp)
     }
 
-    private fun fetchPlaylistViaPost(playlistId: Long): Pair<String, List<Song>>? {
+    private suspend fun fetchPlaylistViaPost(playlistId: Long): Pair<String, List<Song>>? {
         val form = FormBody.Builder()
             .add("id", playlistId.toString())
             .add("n", "1000")
@@ -122,7 +134,7 @@ class NeteaseMusicSource : MusicSource {
         return parsePlaylistFromResp(resp)
     }
 
-    private fun parsePlaylistFromResp(resp: okhttp3.Response): Pair<String, List<Song>>? {
+    private suspend fun parsePlaylistFromResp(resp: okhttp3.Response): Pair<String, List<Song>>? {
         val body = resp.body?.string().orEmpty()
         if (body.isBlank()) return null
         val root = JSONObject(body)
@@ -130,45 +142,81 @@ class NeteaseMusicSource : MusicSource {
         val playlist = root.optJSONObject("playlist") ?: root.optJSONObject("result") ?: return null
         val name = playlist.optString("name").ifBlank { return null }
 
-        val list = mutableListOf<Song>()
-        // 优先 tracks：v6 端点的 tracks 含完整 ar/al/dt，可直接复用 parseItem
+        // 1) tracks：v6 富元数据（ar/al/dt/picUrl），按 songId 去重收入
+        val byId = linkedMapOf<String, Song>()
         val tracks = playlist.optJSONArray("tracks")
-        if (tracks != null && tracks.length() > 0) {
+        if (tracks != null) {
             for (i in 0 until tracks.length()) {
                 val item = tracks.optJSONObject(i) ?: continue
-                parseItem(item)?.let { list.add(it) }
+                parseItem(item)?.let { byId[it.songId] = it }
             }
-            if (list.isNotEmpty()) return name to list
         }
 
-        // tracks 缺失 / 被截断 → trackIds 批量请求 song/detail 补全（song/detail 用 artists/album/duration）
-        val trackIds = playlist.optJSONArray("trackIds") ?: return name to emptyList()
-        val ids = StringBuilder()
-        for (i in 0 until trackIds.length()) {
-            val tid = trackIds.optJSONObject(i)?.optLong("id", 0L) ?: continue
-            if (tid > 0) {
-                if (ids.isNotEmpty()) ids.append(',')
-                ids.append(tid)
+        // 2) 截断检测：未登录时 v6 只返回前几首 tracks（实测 657 曲只给 6 首），
+        //    trackIds 完整 → 分块并行 song/detail 补全剩余曲目。
+        //    trackIds 缺失时视 tracks 为全部（老接口无 trackIds 的兼容路径）。
+        val trackIds = playlist.optJSONArray("trackIds")
+        if (trackIds != null && trackIds.length() > byId.size) {
+            val ids = ArrayList<Long>(trackIds.length())
+            for (i in 0 until trackIds.length()) {
+                val tid = trackIds.optJSONObject(i)?.optLong("id", 0L) ?: continue
+                if (tid > 0) ids.add(tid)
+            }
+            if (ids.isNotEmpty()) backfillSongs(ids, byId)
+        }
+
+        if (byId.isEmpty()) {
+            // trackIds 存在却一首也没拿到 → 抓取失败，返回 null 让 GET 端点兜底重试；
+            // trackIds 本就缺失 → 真空歌单，按旧逻辑返回空列表（导入 0 首也算成功）
+            return if (trackIds != null) null else name to emptyList()
+        }
+        return name to byId.values.toList()
+    }
+
+    /**
+     * 用 trackIds 批量 `song/detail` 补全被截断的曲目，结果并入 [byId]（已有的 v6 富元数据优先，不覆盖）。
+     *
+     * 参数格式（实测必须同时传，只传 c 返回 400「参数错误」）：
+     *  - `c`   = `[{"id":"123"},{"id":"456"}]`（对象数组）
+     *  - `ids` = `[123,456]`（数字数组）
+     *
+     * 分块并行：单次请求对超大歌单可能被服务端限流，按 [BATCH] 切分后并发拉取；
+     * 任一块失败只丢那一块，不影响其余（runCatching 吞掉）。
+     */
+    private suspend fun backfillSongs(ids: List<Long>, byId: LinkedHashMap<String, Song>) = coroutineScope {
+        ids.chunked(BATCH).forEach { chunk ->
+            launch(Dispatchers.IO) {
+                runCatching {
+                    val cObj = buildString {
+                        append('[')
+                        chunk.forEachIndexed { i, id ->
+                            if (i > 0) append(',')
+                            append("{\"id\":\"").append(id).append("\"}")
+                        }
+                        append(']')
+                    }
+                    val form = FormBody.Builder()
+                        .add("c", cObj)
+                        .add("ids", "[${chunk.joinToString(",")}]")
+                        .build()
+                    val req = Request.Builder()
+                        .url("https://music.163.com/api/song/detail")
+                        .headers(okhttp3.Headers.headersOf(*headers.flatMap { listOf(it.key, it.value) }.toTypedArray()))
+                        .post(form)
+                        .build()
+                    val resp = Net.client().newCall(req).execute()
+                    val respBody = resp.body?.string().orEmpty()
+                    if (respBody.isBlank()) return@runCatching
+                    val songsArr = JSONObject(respBody).optJSONArray("songs") ?: return@runCatching
+                    synchronized(byId) {
+                        for (i in 0 until songsArr.length()) {
+                            val item = songsArr.optJSONObject(i) ?: continue
+                            parseItem(item)?.let { byId.putIfAbsent(it.songId, it) }
+                        }
+                    }
+                }
             }
         }
-        if (ids.isEmpty()) return name to emptyList()
-        runCatching {
-            val form = FormBody.Builder().add("c", "[$ids]").build()
-            val req = Request.Builder()
-                .url("https://music.163.com/api/song/detail")
-                .headers(okhttp3.Headers.headersOf(*headers.flatMap { listOf(it.key, it.value) }.toTypedArray()))
-                .post(form)
-                .build()
-            val resp2 = Net.client().newCall(req).execute()
-            val body2 = resp2.body?.string().orEmpty()
-            if (body2.isBlank()) return@runCatching
-            val songsArr = JSONObject(body2).optJSONArray("songs") ?: return@runCatching
-            for (i in 0 until songsArr.length()) {
-                val item = songsArr.optJSONObject(i) ?: continue
-                parseItem(item)?.let { list.add(it) }
-            }
-        }
-        return name to list
     }
 
     /**

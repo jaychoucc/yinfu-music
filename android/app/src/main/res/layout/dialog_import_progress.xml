@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    导入进度对话框内容视图。
+
+    设计要点：旧版只用一个 setMessage 文案「33/657 · 正在匹配《x》」，问题是
+    跳过的歌（已导入过、不请求网络）在一瞬间就把 done 顶上去，文案数字会从 33
+    直接蹦到 41，用户以为漏歌了。这里拆成三行分别显示「已匹配 / 跳过 / 未匹配」，
+    并用确定性进度条承接总数，跳过的歌只加「跳过」计数、不动「已匹配」，
+    数字单调递增不回退，看起来是连续的。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="20dp">
+
+    <ProgressBar
+        android:id="@+id/pb_import"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:max="100"
+        android:progress="0"
+        android:progressTint="@color/accent_1"
+        android:secondaryProgressTint="@color/panel_2" />
+
+    <TextView
+        android:id="@+id/tv_import_head"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="14dp"
+        android:text="已匹配 0 / 0 首"
+        android:textColor="@color/text"
+        android:textSize="16sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/tv_import_detail"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:text="正在解析歌单…"
+        android:textColor="@color/text_2"
+        android:textSize="13sp" />
+
+</LinearLayout>

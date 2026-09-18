@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- 导入显示与后台化（2026-09-18）：解决两个真机问题——进度数字「从 33 跳到 41」式的跳变，以及页面被回收后导入中断（657 首歌单卡在 244）
+  - **跳变根因**：旧 `onProgress(done, total, title)` 把 matched + skipped + missed 混进一个 done 数。跳过的歌（歌单内已存在，不做任何网络请求）几乎瞬间完成，遇到已导入歌单时进度数字成片跃进。现在回调拆成 `(matched, skipped, missed, total, title)` 三计数，UI 分别显示「已匹配 X · 跳过 Y · 未匹配 Z」，进度条 `setProgress(done, true)` 平滑动画承接
+  - **中断根因**：导入协程原挂在 `MyPlaylistsActivity.lifecycleScope`，锁屏 / 切后台 / 系统回收页面会取消协程，已匹配条目停在中间数、misses 也不写。新增前台服务 `import_/PlaylistImportService.kt`（`foregroundServiceType="dataSync"`）：协程挂在服务级 `SupervisorJob() + Dispatchers.IO` scope，与 Activity 生命周期完全解耦；`onCreate` 同步 `startForeground`（5s ANR 门槛，同 PlayerService 的坑）；`START_NOT_STICKY` 进程被杀不重启；重复 `ACTION_START` 由 `AtomicBoolean.compareAndSet` 幂等拦截
+  - **服务 ↔ UI 通道**：新增进程内单例 `import_/ImportEngine.kt`（`MutableStateFlow<State?>`）。服务写状态，页面用 `repeatOnLifecycle(STARTED)` 收集，双方互不持有引用。State 拆成 matched/skipped/missed/total/title/playlistName/result/cancelled/failed，`done = matched+skipped+missed` 只给进度条用
+  - **最小化 / 恢复**：进度对话框新增「最小化」按钮（只关弹窗，服务继续跑）；「导入」按钮双重行为——`ImportEngine.state.value != null`（导入中或有未消费结果）→ 直接恢复进度弹窗，否则弹输入框发起新导入；`MyPlaylistsActivity` 改 `singleTop`，通知点按 `onNewIntent` 复用实例
+  - **通知授权**：真机实测 `POST_NOTIFICATIONS` 被拒（`granted=false` 且 `USER_SET|USER_FIXED`，`dumpsys notification` 里 `numEnqueuedByApp=186 / numBlocked=186`），后台导入进度完全不可见。`startImport` 现在在 Android 13+ 先走 `ActivityResultContracts.RequestPermission` 请求（被拒仍继续导入，只是 toast 提示通知栏不显示进度，页面内弹窗与「导入」按钮恢复不受影响）
+  - **通知内容**：标题带歌单名（`onPlaylistCreated(id, name)` 回调传名，修复此前从引擎空读回写导致歌单名恒为空的 bug），明细行「已匹配 X · 跳过 Y · 未匹配 Z / N · 《歌名》」+ 确定性进度条（解析阶段不确定），常驻 ongoing + 「取消」操作（`ACTION_CANCEL`）；完成态通知非常驻可划掉
+  - 真机验证（2026-09-18，小米 24129PN74C）：`yinfu-music-1.0.0-20260918.0316.apk`。旧 Activity 版导入卡死在 244（28 次轮询无变化）；服务版同一歌单 **244 → 247 → 274 持续爬升，且全程锁屏（页面已销毁）仍在推进**，`dumpsys activity services` 确认 `isForeground=true foregroundId=2002 types=0x00000001`；通知授权后 `android.text` 正确渲染「已匹配 36 · 跳过 58 · 未匹配 2 / 657 · 《海口》」、标题「正在导入歌单· 抓个胖子做晚餐喜欢的音乐」
+  - 约束遵守：不新增任何第三方依赖；新增文件 `ImportEngine.kt` / `PlaylistImportService.kt` / `dialog_import_progress.xml`；改 `AndroidManifest.xml`（FOREGROUND_SERVICE_DATA_SYNC 权限 + 服务注册 + singleTop）、`PlaylistImporter.kt`（回调签名）、`MyPlaylistsActivity.kt`、`gradle.properties`（修掉指向别的机器的过期 `org.gradle.java.home`）
+
 ### Changed
 - 网易云歌单导入提速（2026-09-17，多线程）：匹配阶段从「4 歌并发 × 共享 8 源信号量」升级为「8 歌并发 × 每歌独立 10 源信号量」，修复 8 首歌争抢同一个全局信号量导致实际并发塌缩到 10 路的问题；新增**早退机制**——一旦出现 ≥135 分（标题精确 100 + 歌手全中 20 + 时长 ≤3s 15）的命中，仍在排队的音源直接跳过，绝大多数歌曲 1~2 个源即可定案；候选源按命中率排序（网易云本源排最前，歌单来源平台命中最高）；源实例只构建一次全局复用；单源超时 8s→5s、单歌总超时 30s→20s
 
@@ -42,6 +53,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 约束遵守：**不新增任何第三方依赖**；全程 `findViewById`（`viewBinding = false`）；未改动 `build.gradle.kts` / `settings.gradle.kts` / `gradle.properties` / `ref/` / `ref_all/` / `web/`
 
 ### Fixed
+- 网易云歌单导入「657 首只导入 6 首」（2026-09-18，实测歌单 390231913 复现）——两个叠加 bug：
+  - **截断未补全**：未登录请求 v6 `/api/v6/playlist/detail` 时 `tracks` 只返回前几首（实测 657 曲歌单只给 6 首），但 `trackIds` 是完整的 657 条；旧代码 `tracks` 非空就直接返回 6 首，剩余 651 首永久丢失。现按 `trackIds.length() > tracks 解析数` 判定截断，用 trackIds 分块（每块 200）**并行** `song/detail` 补全；v6 富元数据（ar/al/dt/picUrl）优先、补全结果只填空位不覆盖
+  - **兜底路径 400**：`song/detail` 实测**必须同时传 `c`（对象数组 `[{"id":"123"}]`）与 `ids`（数字数组 `[123]`）**，旧代码只传 `c` 被服务端以 400「参数错误」拒绝，trackIds 兜底链路其实是哑的。已修正参数格式
+  - 语义保留：trackIds 缺失的真空歌单仍返回空列表（导入 0 首），trackIds 存在却全块失败才返回 null 交给 GET 端点兜底
 - 首页「推荐歌单 / 新歌速递 / 排行榜详情」歌曲仍播 30s 提前结束（C 方案：网易 `tracks[].fee` 字段 → metadata 级主音源路由；fee∈{1,4} 即 VIP/专辑独占，主音源从 `netease` 改为 `migu`，海糖网退到兜底链；fee∈{0,8} 或缺失仍走 `netease`，100% 向后兼容；`NeteaseMusicSource.isLikelyPreview` 试听探测保留为二道防线；实证：60 首真实推荐歌单曲目中 fee=1 (VIP) 占 19/60，全部命中 migu 接管，fee=0/8 合计 41/60 仍走 netease，A 方案 600 阈值的盲区彻底关闭）
 - 部分歌曲（典型如港台/粤语艺人「混账-周柏豪」）点歌后"无法解析"提前结束（fallback 过滤 bug + 跨源回退链路扩展）：
   - **根因**：`PlayerRepository.resolvePlayableUrl` 回退循环用 `&& it.hasPlayUrl` 过滤，但所有 7 个 `MusicSource.search()` 返回的 Song `playUrl` 都是空（URL 后续 `resolvePlayUrl` 才填），导致 fallback 100% 哑炮

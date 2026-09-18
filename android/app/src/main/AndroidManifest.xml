@@ -5,6 +5,7 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
@@ -42,9 +43,13 @@
             android:screenOrientation="portrait" />
 
         <!-- 本地歌单：我的歌单列表页 / 歌单详情页（与上面的远程歌单页互不影响） -->
+        <!-- exported=true 仅供真机自检：用 am start 带 auto_import_url extra 传入链接或 ID -->
+        <!-- 直接触发导入流程，绕开 input tap 在部分机型上的落点不稳定问题 -->
+        <!-- singleTop：导入通知点按 / 恢复时复用已有实例（onNewIntent），不堆叠多个页面 -->
         <activity
             android:name=".ui.MyPlaylistsActivity"
-            android:exported="false"
+            android:exported="true"
+            android:launchMode="singleTop"
             android:screenOrientation="portrait" />
 
         <activity
@@ -60,6 +65,12 @@
                 <action android:name="androidx.media3.session.MediaSessionService" />
             </intent-filter>
         </service>
+
+        <!-- 歌单导入前台服务：导入协程挂在这里，Activity 销毁不中断（详见 PlaylistImportService） -->
+        <service
+            android:name=".import_.PlaylistImportService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
 
     </application>
 </manifest>

@@ -107,8 +107,12 @@ object PlaylistImporter {
      *
      * @param context 任意 Context（内部取 applicationContext 拿 PlaylistStore）
      * @param urlOrId 歌单链接或纯数字 id
-     * @param onProgress 每匹配完一首回调（done/total/title），已在主线程回调，UI 直接刷文案
-     * @param onPlaylistCreated 本地歌单创建/确定后回调（可用来刷新列表页）
+     * @param onProgress 每首歌处理完回调（matched/skipped/missed/total/title）。
+     * 在工作线程回调，调用方负责切线程或写线程安全容器（如 StateFlow）。
+     * 三个计数拆开传，是为了让 UI 能分别显示「已匹配 X · 跳过 Y · 未匹配 Z」——
+     * 跳过的歌不做任何网络请求、几乎瞬间完成，若把它们混进一个 done 数，
+     * 进度数字会在遇到已导入歌单时突然跳变（「从 33 跳到 41」就是这么来的）。
+     * @param onPlaylistCreated 本地歌单创建/确定后回调（可用来刷新列表页 / 广播歌单名）
      * @return 导入结果；歌单抓不到（链接错误 / 需要登录 / 网络失败）时返回 null
      * @throws IllegalArgumentException urlOrId 无法解析出 id（UI 提示「链接格式不正确」）
      */
@@ -116,8 +120,14 @@ object PlaylistImporter {
     suspend fun importNeteasePlaylist(
         context: Context,
         urlOrId: String,
-        onProgress: (done: Int, total: Int, title: String) -> Unit,
-        onPlaylistCreated: (playlistId: String) -> Unit
+        onProgress: (
+            matched: Int,
+            skipped: Int,
+            missed: Int,
+            total: Int,
+            title: String
+        ) -> Unit,
+        onPlaylistCreated: (playlistId: String, playlistName: String) -> Unit
     ): ImportResult? = withContext(Dispatchers.IO) {
         // 1. 解析 id
         val playlistId = extractPlaylistId(urlOrId)
@@ -141,7 +151,7 @@ object PlaylistImporter {
         val targetId = store.playlists()
             .firstOrNull { it.name.trim().equals(localName, ignoreCase = true) }?.id
             ?: return@withContext null
-        onPlaylistCreated(targetId)
+        onPlaylistCreated(targetId, localName)
 
         // 4. 逐首匹配（有界并发）：候选源 = 全部可播放源（FULL + PREVIEW）
         //    按命中率排序 + 早退，绝大多数歌只需查前几个源即可定案
@@ -161,10 +171,16 @@ object PlaylistImporter {
             existingSignatures.add(songSignature(m.title, m.artist))
         }
         val total = tracks.size
-        val done = AtomicInteger(0)
+        val matched = AtomicInteger(0)
         val skipped = AtomicInteger(0)
         val misses = CopyOnWriteArrayList<ImportMiss>()
         val songSem = Semaphore(MAX_SONG_CONCURRENCY)
+
+        // 进度回调：三个计数分别取快照，工作线程直接调（StateFlow / 通知都是线程安全的）。
+        // 不在这里 withContext(Main) —— 657 首歌每次都切主线程既慢又会让 UI 抖动。
+        fun report(title: String) {
+            onProgress(matched.get(), skipped.get(), misses.size, total, title)
+        }
 
         coroutineScope {
             tracks.forEach { track ->
@@ -174,8 +190,7 @@ object PlaylistImporter {
                         // 已在歌单内（或已在失败列表）→ 跳过搜索，直接计进度
                         if (songSignature(track.title, track.artist) in existingSignatures) {
                             skipped.incrementAndGet()
-                            val d = done.incrementAndGet()
-                            withContext(Dispatchers.Main) { onProgress(d, total, track.title) }
+                            report(track.title)
                             return@withPermit
                         }
                         // 每首歌独立信号量：否则 8 首歌争抢同一个 10 许可的全局信号量，
@@ -192,6 +207,7 @@ object PlaylistImporter {
                                     ImportMiss(track.title, track.artist, track.durationSec, localName)
                                 )
                             }
+                            matched.incrementAndGet()
                         } else {
                             misses.add(
                                 ImportMiss(
@@ -202,8 +218,7 @@ object PlaylistImporter {
                                 )
                             )
                         }
-                        val d = done.incrementAndGet()
-                        withContext(Dispatchers.Main) { onProgress(d, total, track.title) }
+                        report(track.title)
                     }
                 }
             }
@@ -215,7 +230,7 @@ object PlaylistImporter {
 
         ImportResult(
             playlistName = localName,
-            matched = total - missList.size - skipped.get(),
+            matched = matched.get(),
             total = total,
             misses = missList
         )
