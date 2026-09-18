@@ -2,7 +2,7 @@
 chcp 65001 >nul
 cd /d "%~dp0"
 
-set "JAVA_HOME=%~dp0..\build-tools\jdk-17"
+set "JAVA_HOME=%~dp0..\build-tools\jdk\jdk-17.0.20.1+1"
 set "ANDROID_HOME=%~dp0..\build-tools\android-sdk"
 set "ANDROID_SDK_ROOT=%ANDROID_HOME%"
 set "PATH=%JAVA_HOME%\bin;%PATH%"
